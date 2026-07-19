@@ -13,50 +13,6 @@
     <p>公开行情分析与无前视回测。不会连接账户，也不会自动下单。</p>
   </header>
 
-  
-  <nav class="tabs">
-    <button class="tab active" data-target="researchPanel">研究</button>
-    <button class="tab" data-target="scannerPanel">排行榜</button>
-    <button class="tab" data-target="predictionPanel">预测价值</button>
-  </nav>
-
-  <section id="scannerPanel" class="panel hidden">
-    <section class="card">
-      <h2>Gate高流动性合约扫描</h2>
-      <div class="grid">
-        <label>扫描周期<select id="scanInterval">
-          <option>5m</option><option selected>15m</option><option>30m</option><option>1h</option><option>4h</option>
-        </select></label>
-        <label>扫描数量<input id="scanLimit" type="number" value="12" min="3" max="30"></label>
-      </div>
-      <button id="scanBtn">开始扫描</button>
-      <pre id="scanResult">等待扫描</pre>
-    </section>
-
-    <section class="card">
-      <h2>多周期共振</h2>
-      <button id="consensusBtn">分析当前交易对的5个周期</button>
-      <pre id="consensusResult">等待分析</pre>
-    </section>
-  </section>
-
-  <section id="predictionPanel" class="panel hidden">
-    <section class="card">
-      <h2>预测市场价值计算器</h2>
-      <p class="note">Gate官方API文档中未确认公开Prediction接口，因此本版采用手动输入市场价格和你独立估计的真实概率。</p>
-      <div class="grid">
-        <label>YES市场价格<input id="marketPrice" type="number" step="0.01" value="0.60"></label>
-        <label>你的模型概率<input id="modelProbability" type="number" step="0.01" value="0.68"></label>
-        <label>费用率<input id="predictionFee" type="number" step="0.001" value="0"></label>
-        <label>最大Kelly仓位<input id="kellyCap" type="number" step="0.01" value="0.05"></label>
-      </div>
-      <button id="predictionBtn">计算价值和仓位上限</button>
-      <pre id="predictionResult">等待计算</pre>
-    </section>
-  </section>
-
-  <div id="researchPanel" class="panel">
-
   <section class="card">
     <h2>实时信号</h2>
     <div class="grid">
@@ -85,34 +41,10 @@
     <pre id="backtest">等待回测</pre>
   </section>
 
-
-  <section class="card">
-    <h2>参数优化</h2>
-    <button id="optimizeBtn">运行36组参数</button>
-    <pre id="optimize">等待优化</pre>
-  </section>
-
-  <section class="card">
-    <h2>滚动样本外验证</h2>
-    <div class="grid">
-      <label>训练K线<input id="trainBars" type="number" value="1200"></label>
-      <label>测试K线<input id="testBars" type="number" value="400"></label>
-    </div>
-    <button id="wfBtn">开始Walk-Forward</button>
-    <pre id="wf">等待验证</pre>
-  </section>
-
-  <section class="card">
-    <h2>蒙特卡洛风险</h2>
-    <button id="mcBtn">运行1000次模拟</button>
-    <pre id="mc">等待模拟</pre>
-  </section>
-
   <section class="card warning">
     <h2>结果解释</h2>
     <p>回测不是盈利承诺。先查看交易笔数、最大回撤、Profit Factor和样本外表现，不要只看胜率。</p>
   </section>
-  </div>
 </main>
 <script src="/static/app.js"></script>
 </body>
