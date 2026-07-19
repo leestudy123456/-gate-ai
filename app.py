@@ -11,10 +11,46 @@ from pydantic import BaseModel, Field
 from backtest import run_backtest
 from gate_client import GateDataError, fetch_history, fetch_recent_candles
 from strategy import build_signal, snapshot_to_dict
+from optimizer import optimize_parameters
+from validation import walk_forward_validate, monte_carlo_trade_paths
+from market_scanner import scan_market, multi_timeframe_consensus
+from prediction_value import analyze_prediction_value
+from signal_store import save_signal, recent_signals
 
 app = FastAPI(title="Gate AI Quant", version="2.0.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+
+
+class OptimizeRequest(BaseModel):
+    contract: str = Field(default="BTC_USDT")
+    interval: str = Field(default="15m")
+    start: str
+    end: str
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+
+
+class WalkForwardRequest(OptimizeRequest):
+    train_bars: int = Field(default=1200, ge=500, le=10000)
+    test_bars: int = Field(default=400, ge=200, le=5000)
+
+
+class PredictionRequest(BaseModel):
+    market_price: float = Field(ge=0.01, le=0.99)
+    model_probability: float = Field(ge=0.0, le=1.0)
+    fee_rate: float = Field(default=0.0, ge=0.0, le=0.10)
+    kelly_cap: float = Field(default=0.05, gt=0.0, le=0.25)
+    minimum_edge: float = Field(default=0.05, ge=0.0, le=0.30)
+
+
+
+class PositionSizeRequest(BaseModel):
+    account_balance: float = Field(gt=0)
+    risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    entry: float = Field(gt=0)
+    stop: float = Field(gt=0)
+    leverage: float = Field(default=1.0, ge=1.0, le=100.0)
 
 
 class BacktestRequest(BaseModel):
@@ -57,7 +93,7 @@ async def analyze_api(
     try:
         candles, warnings = await fetch_recent_candles(contract, interval, 300)
         snapshot = build_signal(candles)
-        return {
+        payload = {
             "ok": True,
             "contract": contract.upper(),
             "interval": interval,
@@ -65,6 +101,14 @@ async def analyze_api(
             "signal": snapshot_to_dict(snapshot),
             "data_warnings": warnings,
         }
+        save_signal(
+            contract.upper(),
+            interval,
+            snapshot.side,
+            snapshot.confidence,
+            payload,
+        )
+        return payload
     except (GateDataError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -97,3 +141,180 @@ async def backtest_api(req: BacktestRequest) -> dict:
         return {"ok": True, "result": payload}
     except (GateDataError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/optimize")
+async def optimize_api(req: OptimizeRequest) -> dict:
+    try:
+        candles, data_warnings = await fetch_history(
+            req.contract,
+            req.interval,
+            parse_utc_date(req.start),
+            parse_utc_date(req.end, end_of_day=True),
+        )
+        rows = optimize_parameters(
+            candles,
+            fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate,
+        )
+        return {
+            "ok": True,
+            "best": rows[0].to_dict() if rows else None,
+            "top10": [row.to_dict() for row in rows[:10]],
+            "data_warnings": data_warnings,
+            "notice": "优化区间属于训练样本，必须再做样本外验证。",
+        }
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/walk-forward")
+async def walk_forward_api(req: WalkForwardRequest) -> dict:
+    try:
+        candles, data_warnings = await fetch_history(
+            req.contract,
+            req.interval,
+            parse_utc_date(req.start),
+            parse_utc_date(req.end, end_of_day=True),
+        )
+        result = walk_forward_validate(
+            candles,
+            train_bars=req.train_bars,
+            test_bars=req.test_bars,
+            fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate,
+        )
+        result["data_warnings"] = data_warnings
+        return {"ok": True, "result": result}
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/monte-carlo")
+async def monte_carlo_api(req: BacktestRequest) -> dict:
+    try:
+        candles, _ = await fetch_history(
+            req.contract,
+            req.interval,
+            parse_utc_date(req.start),
+            parse_utc_date(req.end, end_of_day=True),
+        )
+        result = run_backtest(
+            candles,
+            threshold=req.threshold,
+            fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate,
+            risk_fraction=req.risk_fraction,
+            max_holding_bars=req.max_holding_bars,
+        )
+        returns = [
+            trade["net_return_pct"] for trade in result.trades_detail
+        ]
+        simulation = monte_carlo_trade_paths(returns)
+        return {"ok": True, "result": simulation}
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/scanner")
+async def scanner_api(
+    interval: str = Query(default="15m"),
+    limit: int = Query(default=12, ge=3, le=30),
+    min_confidence: int = Query(default=55, ge=0, le=100),
+) -> dict:
+    try:
+        return {
+            "ok": True,
+            "result": await scan_market(
+                interval=interval,
+                limit=limit,
+                min_confidence=min_confidence,
+            ),
+        }
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/consensus")
+async def consensus_api(contract: str = Query(default="BTC_USDT")) -> dict:
+    try:
+        return {"ok": True, "result": await multi_timeframe_consensus(contract)}
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/prediction-value")
+async def prediction_value_api(req: PredictionRequest) -> dict:
+    try:
+        result = analyze_prediction_value(
+            market_price=req.market_price,
+            model_probability=req.model_probability,
+            fee_rate=req.fee_rate,
+            kelly_cap=req.kelly_cap,
+            minimum_edge=req.minimum_edge,
+        )
+        return {
+            "ok": True,
+            "result": result.to_dict(),
+            "notice": "本模块只计算价值差，不会自动生成真实概率。",
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/signals")
+async def signals_api(limit: int = Query(default=30, ge=1, le=200)) -> dict:
+    return {"ok": True, "rows": recent_signals(limit)}
+
+
+@app.get("/api/dashboard")
+async def dashboard_api() -> dict:
+    recent = recent_signals(100)
+    total = len(recent)
+    long_count = sum(1 for row in recent if row["side"] == "LONG")
+    short_count = sum(1 for row in recent if row["side"] == "SHORT")
+    flat_count = sum(1 for row in recent if row["side"] == "FLAT")
+    high_confidence = sum(1 for row in recent if int(row["confidence"]) >= 80)
+    average_confidence = (
+        sum(int(row["confidence"]) for row in recent) / total if total else 0
+    )
+    return {
+        "ok": True,
+        "summary": {
+            "signals_logged": total,
+            "long_signals": long_count,
+            "short_signals": short_count,
+            "flat_signals": flat_count,
+            "high_confidence_signals": high_confidence,
+            "average_confidence": round(average_confidence, 2),
+        },
+        "recent": recent[:10],
+        "notice": "统计来自本实例信号日志；Render免费实例重启后日志可能清空。",
+    }
+
+
+@app.post("/api/position-size")
+async def position_size_api(req: PositionSizeRequest) -> dict:
+    risk_per_unit = abs(req.entry - req.stop)
+    if risk_per_unit <= 0:
+        raise HTTPException(status_code=400, detail="入场价与止损价不能相同")
+
+    max_loss = req.account_balance * req.risk_fraction
+    quantity = max_loss / risk_per_unit
+    notional = quantity * req.entry
+    estimated_margin = notional / req.leverage
+
+    return {
+        "ok": True,
+        "result": {
+            "account_balance": req.account_balance,
+            "risk_fraction": req.risk_fraction,
+            "max_loss": max_loss,
+            "risk_per_unit": risk_per_unit,
+            "quantity": quantity,
+            "notional": notional,
+            "leverage": req.leverage,
+            "estimated_margin": estimated_margin,
+        },
+        "notice": "未计入强平、资金费率、手续费、滑点和最小下单单位；仅作风险预算参考。",
+    }
