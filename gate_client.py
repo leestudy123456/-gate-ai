@@ -14,6 +14,7 @@ INTERVAL_SECONDS = {
     "30m": 1800,
     "1h": 3600,
     "4h": 14400,
+    "1d": 86400,
 }
 MAX_PAGE_BARS = 1000
 
@@ -84,7 +85,7 @@ async def _get(params: dict[str, str]) -> list[dict[str, Any]]:
                 response = await client.get(
                     url,
                     params=params,
-                    headers={"Accept": "application/json", "User-Agent": "gate-ai-quant/2.0"},
+                    headers={"Accept": "application/json", "User-Agent": "gate-ai-quant/4.0"},
                 )
             if response.status_code == 429:
                 await asyncio.sleep(1.5 * (attempt + 1))
@@ -172,12 +173,14 @@ async def fetch_history(
 
     while cursor < end_ts:
         chunk_end = min(end_ts, cursor + seconds * (MAX_PAGE_BARS - 1))
+        # Gate rejects requests that contain limit together with from/to.
+        # Use bounded from/to windows only; each window is kept below the
+        # endpoint's maximum page size, then merged and deduplicated locally.
         params = {
             "contract": contract,
             "interval": interval,
             "from": str(cursor),
             "to": str(chunk_end),
-            "limit": str(MAX_PAGE_BARS),
         }
         payload = await _get(params)
         page, page_warnings = _clean(payload, interval, closed_only=True)

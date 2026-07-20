@@ -19,8 +19,9 @@ from signal_store import save_signal, recent_signals
 from data_quality import assess_data_quality
 from direction_validation import validate_next_bar_direction
 from trade_plan import build_trade_plan
+from model_card import model_card
 
-app = FastAPI(title="Gate AI Quant Professional 3.2.0", version="3.2.0")
+app = FastAPI(title="Gate AI Quant Professional 4.0.0", version="4.0.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -118,7 +119,12 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "3.2.0"}
+    return {"ok": True, "version": "4.0.0"}
+
+
+@app.get("/api/model-card")
+async def model_card_api() -> dict:
+    return {"ok": True, "result": model_card()}
 
 
 @app.get("/api/analyze")
