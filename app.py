@@ -16,8 +16,11 @@ from validation import walk_forward_validate, monte_carlo_trade_paths
 from market_scanner import scan_market, multi_timeframe_consensus
 from prediction_value import analyze_prediction_value
 from signal_store import save_signal, recent_signals
+from data_quality import assess_data_quality
+from direction_validation import validate_next_bar_direction
+from trade_plan import build_trade_plan
 
-app = FastAPI(title="Gate AI Quant Professional 3.0", version="3.0.0")
+app = FastAPI(title="Gate AI Quant Professional 3.2.0", version="3.2.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -62,6 +65,30 @@ class AdvancedRiskRequest(BaseModel):
     kelly_cap: float = Field(default=0.05, gt=0, le=0.25)
 
 
+class DirectionValidationRequest(BaseModel):
+    contract: str = Field(default="BTC_USDT")
+    interval: str = Field(default="5m")
+    start: str
+    end: str
+    threshold: int = Field(default=72, ge=60, le=90)
+    sample_size: int = Field(default=100, ge=20, le=1000)
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+
+
+
+
+class TradePlanRequest(BaseModel):
+    contract: str = Field(default="BTC_USDT")
+    interval: str = Field(default="5m")
+    start: str
+    end: str
+    threshold: int = Field(default=72, ge=60, le=90)
+    sample_size: int = Field(default=100, ge=20, le=1000)
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+
+
 class BacktestRequest(BaseModel):
     contract: str = Field(default="BTC_USDT")
     interval: str = Field(default="15m")
@@ -91,7 +118,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "3.0.0"}
+    return {"ok": True, "version": "3.2.0"}
 
 
 @app.get("/api/analyze")
@@ -109,6 +136,8 @@ async def analyze_api(
             "last_closed_at": candles[-1].t,
             "signal": snapshot_to_dict(snapshot),
             "data_warnings": warnings,
+            "data_quality": assess_data_quality(candles, interval, warnings),
+            "score_notice": "信心值是规则模型评分，不是经过校准的真实胜率。",
         }
         save_signal(
             contract.upper(),
@@ -118,6 +147,27 @@ async def analyze_api(
             payload,
         )
         return payload
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+
+
+@app.post("/api/trade-plan")
+async def trade_plan_api(req: TradePlanRequest) -> dict:
+    try:
+        candles, data_warnings = await fetch_history(
+            req.contract, req.interval,
+            parse_utc_date(req.start),
+            parse_utc_date(req.end, end_of_day=True),
+        )
+        result = build_trade_plan(
+            candles, interval=req.interval, threshold=req.threshold,
+            sample_size=req.sample_size, fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate, data_warnings=data_warnings,
+        )
+        result.update({"contract": req.contract.upper(), "interval": req.interval, "start": req.start, "end": req.end})
+        return {"ok": True, "result": result}
     except (GateDataError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -148,6 +198,34 @@ async def backtest_api(req: BacktestRequest) -> dict:
         payload["start"] = req.start
         payload["end"] = req.end
         return {"ok": True, "result": payload}
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/direction-validation")
+async def direction_validation_api(req: DirectionValidationRequest) -> dict:
+    try:
+        candles, data_warnings = await fetch_history(
+            req.contract,
+            req.interval,
+            parse_utc_date(req.start),
+            parse_utc_date(req.end, end_of_day=True),
+        )
+        result = validate_next_bar_direction(
+            candles,
+            threshold=req.threshold,
+            sample_size=req.sample_size,
+            fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate,
+        )
+        result.update({
+            "contract": req.contract.upper(),
+            "interval": req.interval,
+            "start": req.start,
+            "end": req.end,
+            "data_warnings": data_warnings,
+        })
+        return {"ok": True, "result": result}
     except (GateDataError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
