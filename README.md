@@ -1,22 +1,12 @@
-# Gate AI Quant Professional 2.0
+# Gate AI Quant Professional 3.0
 
-Professional 2.0 是当前稳定部署路线上的最高实用版本。
+FastAPI + Gate 公开合约行情的移动端量化研究应用。提供实时多因子分析、市场扫描、多周期共振、无前视回测、参数优化、Walk-Forward、Monte Carlo、仓位预算和预测市场价值计算。
 
-## 新增
+不读取账户、不保存 API Key、不自动下单。技术评分不是确定概率，也不构成投资建议。
 
-- 更透明的多因子评分：趋势、动能、RSI、成交量、价格结构、短线变化和波动率
-- 卡片式多空评分与信心显示
-- 风险等级、盈亏比和完整原因解释
-- 近期支撑与阻力
-- 自动带入入场和止损的仓位计算器
-- 按账户资金和风险比例计算最大计划亏损、数量、名义价值和保证金
-- Render固定Python 3.12.11，避免pydantic-core在Python 3.14上的构建错误
-- 原有市场扫描、多周期共振、回测、参数优化、Walk-Forward、Monte Carlo和预测价值全部保留
+## Render
+- Build: `pip install -r requirements.txt`
+- Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+- Python: 3.12.11
 
-## 使用边界
-
-- 不连接账户、不自动下单
-- 不保证盈利
-- 技术评分是规则模型，不是已被证明的未来概率
-- 仓位计算未计入资金费率、手续费、滑点、强平和最小下单单位
-- 真实资金前必须进行样本外验证和模拟盘观察
+健康检查：`/api/health`，应返回版本 `3.0.0`。

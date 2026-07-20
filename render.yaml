@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: gate-ai-quant-professional-2
+    name: gate-ai-quant-professional-v6
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt

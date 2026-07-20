@@ -29,6 +29,11 @@ class SignalSnapshot:
     support: float
     resistance: float
     factor_details: list[str]
+    regime: str
+    adx: float
+    volatility_percentile: float
+    score_edge: int
+    confidence_label: str
 
 
 def ema(values: list[float], period: int) -> float:
@@ -91,6 +96,95 @@ def macd_values(values: list[float]) -> tuple[float, float, float]:
     return line[-1], signal[-1], line[-1] - signal[-1]
 
 
+
+def adx_wilder(candles: list[Candle], period: int = 14) -> float:
+    """Wilder ADX. Uses only historical closed candles."""
+    if len(candles) < period * 2 + 2:
+        raise ValueError("ADX样本不足")
+
+    trs: list[float] = []
+    plus_dm: list[float] = []
+    minus_dm: list[float] = []
+
+    for prev, cur in zip(candles, candles[1:]):
+        up = cur.h - prev.h
+        down = prev.l - cur.l
+        plus_dm.append(up if up > down and up > 0 else 0.0)
+        minus_dm.append(down if down > up and down > 0 else 0.0)
+        trs.append(max(cur.h - cur.l, abs(cur.h - prev.c), abs(cur.l - prev.c)))
+
+    atr_sum = sum(trs[:period])
+    plus_sum = sum(plus_dm[:period])
+    minus_sum = sum(minus_dm[:period])
+    dx_values: list[float] = []
+
+    for i in range(period, len(trs)):
+        if i > period:
+            atr_sum = atr_sum - atr_sum / period + trs[i]
+            plus_sum = plus_sum - plus_sum / period + plus_dm[i]
+            minus_sum = minus_sum - minus_sum / period + minus_dm[i]
+
+        if atr_sum <= 0:
+            dx_values.append(0.0)
+            continue
+
+        plus_di = 100.0 * plus_sum / atr_sum
+        minus_di = 100.0 * minus_sum / atr_sum
+        denom = plus_di + minus_di
+        dx_values.append(0.0 if denom <= 0 else 100.0 * abs(plus_di - minus_di) / denom)
+
+    if len(dx_values) < period:
+        return fmean(dx_values) if dx_values else 0.0
+
+    adx = fmean(dx_values[:period])
+    for x in dx_values[period:]:
+        adx = (adx * (period - 1) + x) / period
+    return adx
+
+
+def atr_percentile(candles: list[Candle], lookback: int = 100, period: int = 14) -> float:
+    """Fast percentile rank of rolling ATR% values."""
+    if len(candles) < period + 3:
+        raise ValueError("ATR百分位样本不足")
+    trs: list[float] = []
+    for prev, cur in zip(candles, candles[1:]):
+        trs.append(max(cur.h - cur.l, abs(cur.h - prev.c), abs(cur.l - prev.c)))
+    rolling: list[float] = []
+    first = sum(trs[:period]) / period
+    rolling.append(first)
+    value = first
+    for x in trs[period:]:
+        value = (value * (period - 1) + x) / period
+        rolling.append(value)
+    count = min(lookback, len(rolling))
+    recent_atr = rolling[-count:]
+    recent_prices = [c.c for c in candles[-count:]]
+    atr_pcts = [a / p * 100 if p > 0 else 0.0 for a, p in zip(recent_atr, recent_prices)]
+    latest = atr_pcts[-1]
+    return sum(1 for x in atr_pcts if x <= latest) / len(atr_pcts) * 100.0
+
+def classify_regime(
+    price: float,
+    ema20: float,
+    ema50: float,
+    ema200: float,
+    adx: float,
+    atr_pct: float,
+) -> str:
+    if atr_pct >= 3.0:
+        return "高波动"
+    if adx >= 25 and price > ema20 > ema50 > ema200:
+        return "强趋势上涨"
+    if adx >= 25 and price < ema20 < ema50 < ema200:
+        return "强趋势下跌"
+    if adx < 18:
+        return "震荡"
+    if price > ema50:
+        return "弱趋势上涨"
+    if price < ema50:
+        return "弱趋势下跌"
+    return "中性"
+
 def _clamp(value: float) -> int:
     return max(0, min(100, int(round(value))))
 
@@ -107,6 +201,9 @@ def build_signal(candles: list[Candle], threshold: int = 72) -> SignalSnapshot:
     rsi = rsi_wilder(closes)
     atr = atr_wilder(candles)
     atr_pct = atr / price * 100 if price > 0 else 0.0
+    adx = adx_wilder(candles)
+    volatility_percentile = atr_percentile(candles)
+    regime = classify_regime(price, e20, e50, e200, adx, atr_pct)
     macd, macd_sig, hist = macd_values(closes)
     avg_vol = fmean(volumes[-21:-1]) or 1.0
     vol_ratio = volumes[-1] / avg_vol
@@ -214,6 +311,22 @@ def build_signal(candles: list[Candle], threshold: int = 72) -> SignalSnapshot:
         short_score += 4
         factors.append(f"短线变化：最近4根下跌{abs(recent_change_pct):.2f}%")
 
+    # Regime and trend-strength factor
+    if adx >= 30:
+        if price > e50:
+            long_score += 6
+        elif price < e50:
+            short_score += 6
+        factors.append(f"趋势强度：ADX={adx:.1f}，趋势较强")
+    elif adx < 18:
+        long_score -= 5
+        short_score -= 5
+        factors.append(f"趋势强度：ADX={adx:.1f}，市场偏震荡，趋势信号降权")
+    else:
+        factors.append(f"趋势强度：ADX={adx:.1f}，趋势强度一般")
+
+    factors.append(f"市场状态：{regime}")
+
     # Volatility penalty
     if atr_pct > 4.0:
         long_score -= 7
@@ -229,6 +342,13 @@ def build_signal(candles: list[Candle], threshold: int = 72) -> SignalSnapshot:
     long_i, short_i = _clamp(long_score), _clamp(short_score)
     edge = abs(long_i - short_i)
     confidence = _clamp(0.70 * max(long_i, short_i) + 0.30 * edge)
+    score_edge = edge
+    if confidence >= 82 and edge >= 30:
+        confidence_label = "高"
+    elif confidence >= 68 and edge >= 18:
+        confidence_label = "中"
+    else:
+        confidence_label = "低"
 
     side = "FLAT"
     entry = stop = target = None
@@ -275,7 +395,7 @@ def build_signal(candles: list[Candle], threshold: int = 72) -> SignalSnapshot:
     else:
         risk_level = "低"
 
-    values = [e20, e50, e200, rsi, atr, macd, macd_sig]
+    values = [e20, e50, e200, rsi, atr, macd, macd_sig, adx, volatility_percentile]
     if not all(isfinite(x) for x in values):
         raise ValueError("指标出现非有限值")
 
@@ -300,6 +420,11 @@ def build_signal(candles: list[Candle], threshold: int = 72) -> SignalSnapshot:
         support=support,
         resistance=resistance,
         factor_details=factors,
+        regime=regime,
+        adx=adx,
+        volatility_percentile=volatility_percentile,
+        score_edge=score_edge,
+        confidence_label=confidence_label,
     )
 def snapshot_to_dict(snapshot: SignalSnapshot) -> dict:
     return asdict(snapshot)

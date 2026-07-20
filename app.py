@@ -17,7 +17,7 @@ from market_scanner import scan_market, multi_timeframe_consensus
 from prediction_value import analyze_prediction_value
 from signal_store import save_signal, recent_signals
 
-app = FastAPI(title="Gate AI Quant", version="2.0.0")
+app = FastAPI(title="Gate AI Quant Professional 3.0", version="3.0.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -53,6 +53,15 @@ class PositionSizeRequest(BaseModel):
     leverage: float = Field(default=1.0, ge=1.0, le=100.0)
 
 
+
+class AdvancedRiskRequest(BaseModel):
+    account_balance: float = Field(gt=0)
+    win_probability: float = Field(ge=0.01, le=0.99)
+    risk_reward: float = Field(gt=0.1, le=10.0)
+    max_risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    kelly_cap: float = Field(default=0.05, gt=0, le=0.25)
+
+
 class BacktestRequest(BaseModel):
     contract: str = Field(default="BTC_USDT")
     interval: str = Field(default="15m")
@@ -82,7 +91,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "2.0.0"}
+    return {"ok": True, "version": "3.0.0"}
 
 
 @app.get("/api/analyze")
@@ -318,3 +327,62 @@ async def position_size_api(req: PositionSizeRequest) -> dict:
         },
         "notice": "未计入强平、资金费率、手续费、滑点和最小下单单位；仅作风险预算参考。",
     }
+
+
+@app.post("/api/advanced-risk")
+async def advanced_risk_api(req: AdvancedRiskRequest) -> dict:
+    b = req.risk_reward
+    p = req.win_probability
+    q = 1.0 - p
+    full_kelly = max(0.0, (b * p - q) / b)
+    quarter_kelly = full_kelly * 0.25
+    capped_kelly = min(quarter_kelly, req.kelly_cap, req.max_risk_fraction)
+    max_loss = req.account_balance * capped_kelly
+    expected_r = p * b - q
+
+    if expected_r <= 0:
+        decision = "无正期望：不建议按Kelly配置仓位"
+    elif capped_kelly <= 0.005:
+        decision = "优势较弱：仅适合极小风险预算"
+    else:
+        decision = "存在正期望假设：仓位仍应受样本误差和回撤约束"
+
+    return {
+        "ok": True,
+        "result": {
+            "full_kelly_fraction": full_kelly,
+            "quarter_kelly_fraction": quarter_kelly,
+            "capped_risk_fraction": capped_kelly,
+            "max_loss": max_loss,
+            "expected_r": expected_r,
+            "decision": decision,
+        },
+        "notice": "胜率必须来自足够数量的样本外交易；技术评分不能直接当作真实胜率。",
+    }
+
+
+@app.get("/api/professional-overview")
+async def professional_overview_api(
+    contract: str = Query(default="BTC_USDT"),
+) -> dict:
+    try:
+        consensus = await multi_timeframe_consensus(contract)
+        recent = recent_signals(100)
+        matching = [x for x in recent if x["contract"] == contract.upper()]
+        return {
+            "ok": True,
+            "contract": contract.upper(),
+            "consensus": consensus,
+            "signal_history": {
+                "count": len(matching),
+                "long": sum(1 for x in matching if x["side"] == "LONG"),
+                "short": sum(1 for x in matching if x["side"] == "SHORT"),
+                "flat": sum(1 for x in matching if x["side"] == "FLAT"),
+                "average_confidence": round(
+                    sum(x["confidence"] for x in matching) / len(matching), 2
+                ) if matching else 0,
+            },
+            "notice": "历史统计是信号日志，不等于已实现交易胜率。",
+        }
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
