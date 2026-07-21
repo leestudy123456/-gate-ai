@@ -1,10 +1,13 @@
-# Gate AI Quant Professional 6.0.0 Mobile
+# Gate AI Quant Professional 7.0.0 Mobile
 
-手机浏览器可运行的公开行情量化研究工具。支持多周期、技术因子评分、样本外方向验证、回测、滚动验证、Monte Carlo、仓位预算和调整 Kelly。
+手机端公开行情量化研究平台，不连接账户、不自动下单。
 
-## 部署
-Build: `pip install -r requirements.txt`
-Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+7.0 新增保守型 AI 决策引擎：
+- 技术评分不直接冒充胜率
+- 按时间顺序验证下一根K线
+- 使用成本后命中率与 Wilson 置信区间
+- 样本量、数据质量、多周期共振共同折扣
+- 只有全部门槛通过且期望值为正才输出条件交易
+- Quarter Kelly + 固定单笔风险上限
 
-## 风险说明
-模型评分不是已校准胜率。调整 Kelly 仍依赖历史样本，不构成投资建议，也不自动下单。
+该工具仅用于研究与风险管理，不构成投资建议。

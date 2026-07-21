@@ -20,8 +20,9 @@ from data_quality import assess_data_quality
 from direction_validation import validate_next_bar_direction
 from trade_plan import build_trade_plan
 from model_card import model_card
+from decision_engine import build_decision_engine
 
-app = FastAPI(title="Gate AI Quant Professional 6.0.0 Mobile", version="6.0.0")
+app = FastAPI(title="Gate AI Quant Professional 7.0.0 Mobile", version="7.0.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -82,6 +83,20 @@ class DirectionValidationRequest(BaseModel):
 
 
 
+class DecisionEngineRequest(BaseModel):
+    contract: str = Field(default="BTC_USDT")
+    interval: str = Field(default="15m")
+    start: str
+    end: str
+    threshold: int = Field(default=72, ge=60, le=90)
+    sample_size: int = Field(default=100, ge=30, le=1000)
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+    account_balance: float = Field(default=1000.0, gt=0)
+    max_risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    kelly_cap: float = Field(default=0.05, gt=0, le=0.25)
+
+
 class TradePlanRequest(BaseModel):
     contract: str = Field(default="BTC_USDT")
     interval: str = Field(default="15m")
@@ -125,7 +140,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "6.0.0", "edition": "Mobile"}
+    return {"ok": True, "version": "7.0.0", "edition": "Mobile AI Decision Engine"}
 
 
 @app.get("/api/model-card")
@@ -168,6 +183,37 @@ async def analyze_api(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+
+
+@app.post("/api/decision-engine")
+async def decision_engine_api(req: DecisionEngineRequest) -> dict:
+    try:
+        candles, data_warnings = await fetch_history(
+            req.contract, req.interval,
+            parse_utc_date(req.start),
+            parse_utc_date(req.end, end_of_day=True),
+        )
+        consensus = await multi_timeframe_consensus(req.contract)
+        result = build_decision_engine(
+            candles=candles,
+            interval=req.interval,
+            consensus=consensus,
+            threshold=req.threshold,
+            sample_size=req.sample_size,
+            fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate,
+            data_warnings=data_warnings,
+            account_balance=req.account_balance,
+            max_risk_fraction=req.max_risk_fraction,
+            kelly_cap=req.kelly_cap,
+        )
+        result.update({
+            "contract": req.contract.upper(), "interval": req.interval,
+            "start": req.start, "end": req.end,
+        })
+        return {"ok": True, "result": result}
+    except (GateDataError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/trade-plan")
