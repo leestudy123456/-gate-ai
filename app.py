@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backtest import run_backtest
-from gate_client import GateDataError, fetch_history, fetch_recent_candles
+from gate_client import GateDataError, INTERVAL_SECONDS, fetch_history, fetch_recent_candles
 from strategy import build_signal, snapshot_to_dict
 from optimizer import optimize_parameters
 from validation import walk_forward_validate, monte_carlo_trade_paths
@@ -21,7 +21,7 @@ from direction_validation import validate_next_bar_direction
 from trade_plan import build_trade_plan
 from model_card import model_card
 
-app = FastAPI(title="Gate AI Quant Professional 4.0.0", version="4.0.0")
+app = FastAPI(title="Gate AI Quant Professional 6.0.0 Mobile", version="6.0.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -61,9 +61,12 @@ class PositionSizeRequest(BaseModel):
 class AdvancedRiskRequest(BaseModel):
     account_balance: float = Field(gt=0)
     win_probability: float = Field(ge=0.01, le=0.99)
+    confidence_lower: float | None = Field(default=None, ge=0.0, le=0.99)
+    data_quality_score: float = Field(default=100.0, ge=0.0, le=100.0)
     risk_reward: float = Field(gt=0.1, le=10.0)
     max_risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
     kelly_cap: float = Field(default=0.05, gt=0, le=0.25)
+    kelly_fraction: float = Field(default=0.25, gt=0, le=0.5)
 
 
 class DirectionValidationRequest(BaseModel):
@@ -81,13 +84,16 @@ class DirectionValidationRequest(BaseModel):
 
 class TradePlanRequest(BaseModel):
     contract: str = Field(default="BTC_USDT")
-    interval: str = Field(default="5m")
+    interval: str = Field(default="15m")
     start: str
     end: str
     threshold: int = Field(default=72, ge=60, le=90)
     sample_size: int = Field(default=100, ge=20, le=1000)
     fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
     slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+    account_balance: float = Field(default=1000.0, gt=0)
+    max_risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    kelly_cap: float = Field(default=0.05, gt=0, le=0.25)
 
 
 class BacktestRequest(BaseModel):
@@ -119,7 +125,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "4.0.0"}
+    return {"ok": True, "version": "6.0.0", "edition": "Mobile"}
 
 
 @app.get("/api/model-card")
@@ -135,10 +141,15 @@ async def analyze_api(
     try:
         candles, warnings = await fetch_recent_candles(contract, interval, 300)
         snapshot = build_signal(candles)
+        generated_at = int(datetime.now(timezone.utc).timestamp())
+        interval_seconds = INTERVAL_SECONDS[interval]
+        expires_at = ((generated_at // interval_seconds) + 1) * interval_seconds
         payload = {
             "ok": True,
             "contract": contract.upper(),
             "interval": interval,
+            "generated_at": generated_at,
+            "expires_at": expires_at,
             "last_closed_at": candles[-1].t,
             "signal": snapshot_to_dict(snapshot),
             "data_warnings": warnings,
@@ -171,6 +182,9 @@ async def trade_plan_api(req: TradePlanRequest) -> dict:
             candles, interval=req.interval, threshold=req.threshold,
             sample_size=req.sample_size, fee_rate=req.fee_rate,
             slippage_rate=req.slippage_rate, data_warnings=data_warnings,
+            account_balance=req.account_balance,
+            max_risk_fraction=req.max_risk_fraction,
+            kelly_cap=req.kelly_cap,
         )
         result.update({"contract": req.contract.upper(), "interval": req.interval, "start": req.start, "end": req.end})
         return {"ok": True, "result": result}
@@ -415,33 +429,44 @@ async def position_size_api(req: PositionSizeRequest) -> dict:
 
 @app.post("/api/advanced-risk")
 async def advanced_risk_api(req: AdvancedRiskRequest) -> dict:
-    b = req.risk_reward
-    p = req.win_probability
-    q = 1.0 - p
-    full_kelly = max(0.0, (b * p - q) / b)
-    quarter_kelly = full_kelly * 0.25
-    capped_kelly = min(quarter_kelly, req.kelly_cap, req.max_risk_fraction)
-    max_loss = req.account_balance * capped_kelly
-    expected_r = p * b - q
+    # Conservative probability: never use a point estimate more optimistic
+    # than the lower confidence bound, then discount for data quality.
+    base_p = min(req.win_probability, req.confidence_lower) if req.confidence_lower is not None else req.win_probability
+    quality_factor = 0.70 + 0.30 * (req.data_quality_score / 100.0)
+    adjusted_p = 0.5 + (base_p - 0.5) * quality_factor
+    adjusted_p = max(0.01, min(0.99, adjusted_p))
 
-    if expected_r <= 0:
-        decision = "无正期望：不建议按Kelly配置仓位"
+    b = req.risk_reward
+    q = 1.0 - adjusted_p
+    full_kelly = max(0.0, (b * adjusted_p - q) / b)
+    fractional_kelly = full_kelly * req.kelly_fraction
+    capped_kelly = min(fractional_kelly, req.kelly_cap, req.max_risk_fraction)
+    max_loss = req.account_balance * capped_kelly
+    expected_r = adjusted_p * b - q
+
+    if expected_r <= 0 or full_kelly <= 0:
+        decision = "无正期望：建议观望，不配置Kelly风险"
     elif capped_kelly <= 0.005:
         decision = "优势较弱：仅适合极小风险预算"
     else:
-        decision = "存在正期望假设：仓位仍应受样本误差和回撤约束"
+        decision = "存在正期望假设：采用折扣Kelly并受固定风险上限约束"
 
     return {
         "ok": True,
         "result": {
+            "input_probability": req.win_probability,
+            "conservative_probability": base_p,
+            "adjusted_probability": adjusted_p,
+            "data_quality_score": req.data_quality_score,
             "full_kelly_fraction": full_kelly,
-            "quarter_kelly_fraction": quarter_kelly,
+            "kelly_fraction": req.kelly_fraction,
+            "fractional_kelly_fraction": fractional_kelly,
             "capped_risk_fraction": capped_kelly,
             "max_loss": max_loss,
             "expected_r": expected_r,
             "decision": decision,
         },
-        "notice": "胜率必须来自足够数量的样本外交易；技术评分不能直接当作真实胜率。",
+        "notice": "采用样本外概率/置信区间下限、数据质量折扣、分数Kelly和固定风险上限；技术评分不能直接当作胜率。",
     }
 
 
