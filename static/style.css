@@ -18,3 +18,6 @@
 .decision-list{margin:0;padding-left:20px}.decision-list li{margin:7px 0;line-height:1.45}
 .decision-blocker{border-left:4px solid #b42318}.decision-warning{border-left:4px solid #b88200}.decision-positive{border-left:4px solid #16845b}
 @media(max-width:560px){.decision-hero,.decision-grid{grid-template-columns:1fr 1fr}.decision-hero strong{font-size:1.45rem}}
+.sim-trade{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;padding:14px;border:1px solid var(--border);border-radius:14px;margin-top:10px;background:var(--card)}
+.sim-trade-main{min-width:0}.sim-trade-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sim-trade-head strong{font-size:1rem}.sim-status{display:inline-flex;padding:3px 8px;border-radius:999px;background:var(--soft);font-size:.78rem}.sim-lines{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;margin-top:8px;font-size:.86rem}.sim-pnl{font-weight:700}.sim-actions{display:flex;flex-direction:column;gap:8px}.sim-actions button{white-space:nowrap}.sim-positive{color:var(--long)}.sim-negative{color:var(--short)}
+@media(max-width:560px){.sim-trade{grid-template-columns:1fr}.sim-actions{flex-direction:row}.sim-lines{grid-template-columns:1fr 1fr}}
