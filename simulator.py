@@ -65,12 +65,29 @@ def init_db() -> None:
                 last_mark REAL,
                 last_checked_at INTEGER,
                 max_holding_bars INTEGER NOT NULL DEFAULT 24,
+                exit_mode TEXT NOT NULL DEFAULT 'SMART',
+                grace_bars INTEGER NOT NULL DEFAULT 6,
+                original_stop REAL,
+                best_price REAL,
+                management_note TEXT NOT NULL DEFAULT '',
                 bars_held INTEGER NOT NULL DEFAULT 0,
                 strategy_json TEXT NOT NULL DEFAULT '{}',
                 notes TEXT NOT NULL DEFAULT ''
             )
             """
         )
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(sim_trades)").fetchall()}
+        migrations = {
+            "exit_mode": "ALTER TABLE sim_trades ADD COLUMN exit_mode TEXT NOT NULL DEFAULT 'SMART'",
+            "grace_bars": "ALTER TABLE sim_trades ADD COLUMN grace_bars INTEGER NOT NULL DEFAULT 6",
+            "original_stop": "ALTER TABLE sim_trades ADD COLUMN original_stop REAL",
+            "best_price": "ALTER TABLE sim_trades ADD COLUMN best_price REAL",
+            "management_note": "ALTER TABLE sim_trades ADD COLUMN management_note TEXT NOT NULL DEFAULT ''",
+        }
+        for name, sql in migrations.items():
+            if name not in existing:
+                conn.execute(sql)
+        conn.execute("UPDATE sim_trades SET original_stop=stop WHERE original_stop IS NULL")
         conn.commit()
 
 
@@ -91,6 +108,7 @@ def create_trade(*, contract: str, interval: str, side: str, order_type: str,
                  requested_entry: float, market_price: float, stop: float, target: float,
                  account_balance: float, risk_fraction: float, leverage: float,
                  fee_rate: float, slippage_rate: float, max_holding_bars: int,
+                 exit_mode: str = "SMART", grace_bars: int = 6,
                  strategy: dict[str, Any] | None = None, notes: str = "") -> dict[str, Any]:
     init_db()
     side = side.upper()
@@ -99,6 +117,11 @@ def create_trade(*, contract: str, interval: str, side: str, order_type: str,
         raise ValueError("模拟交易方向必须为 LONG 或 SHORT")
     if order_type not in {"MARKET", "LIMIT"}:
         raise ValueError("订单类型必须为 MARKET 或 LIMIT")
+    exit_mode = exit_mode.upper()
+    if exit_mode not in {"FIXED", "BREAKEVEN", "MIN_LOSS", "TRAILING", "SMART"}:
+        raise ValueError("到期处理方式无效")
+    max_holding_bars = max(1, min(int(max_holding_bars), 500))
+    grace_bars = max(0, min(int(grace_bars), 100))
     if min(requested_entry, market_price, stop, target, account_balance, leverage) <= 0:
         raise ValueError("价格、余额和杠杆必须大于0")
     if side == "LONG" and not (stop < requested_entry < target):
@@ -135,12 +158,12 @@ def create_trade(*, contract: str, interval: str, side: str, order_type: str,
             id,created_at,updated_at,contract,interval,side,status,order_type,
             requested_entry,fill_price,stop,target,quantity,notional,leverage,
             fee_rate,slippage_rate,account_balance,risk_fraction,opened_at,
-            last_mark,last_checked_at,max_holding_bars,strategy_json,notes
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            last_mark,last_checked_at,max_holding_bars,exit_mode,grace_bars,original_stop,best_price,management_note,strategy_json,notes
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (trade_id, now, now, contract.upper(), interval, side, status, order_type,
              requested_entry, fill, stop, target, quantity, notional, leverage,
              fee_rate, slippage_rate, account_balance, risk_fraction, opened_at,
-             market_price, now, max_holding_bars, json.dumps(strategy or {}, ensure_ascii=False), notes),
+             market_price, now, max_holding_bars, exit_mode, grace_bars, stop, fill or requested_entry, '', json.dumps(strategy or {}, ensure_ascii=False), notes),
         )
         conn.commit()
     return get_trade(trade_id)
@@ -195,7 +218,12 @@ def evaluate_trade(trade_id: str, candles: list[Candle]) -> dict[str, Any]:
     fill = trade.get("fill_price")
     opened_at = trade.get("opened_at")
     stop = float(trade["stop"])
+    original_stop = float(trade.get("original_stop") or stop)
     target = float(trade["target"])
+    exit_mode = str(trade.get("exit_mode") or "SMART").upper()
+    grace_bars = int(trade.get("grace_bars") or 0)
+    best_price = float(trade.get("best_price") or trade.get("fill_price") or requested)
+    management_note = str(trade.get("management_note") or "")
     requested = float(trade["requested_entry"])
     slip = float(trade["slippage_rate"])
     mfe = float(trade.get("max_favorable_excursion") or 0)
@@ -218,20 +246,40 @@ def evaluate_trade(trade_id: str, candles: list[Candle]) -> dict[str, Any]:
             continue
         bars_held += 1
         assert fill is not None
+        risk_unit = max(abs(fill - original_stop), fill * 1e-8)
         if side == "LONG":
+            best_price = max(best_price, c.h)
             mfe = max(mfe, (c.h - fill) / fill)
             mae = max(mae, (fill - c.l) / fill)
-            hit_stop, hit_target = c.l <= stop, c.h >= target
         else:
+            best_price = min(best_price, c.l)
             mfe = max(mfe, (fill - c.l) / fill)
             mae = max(mae, (c.h - fill) / fill)
-            hit_stop, hit_target = c.h >= stop, c.l <= target
+
+        # Intelligent trade management starts halfway through the planned holding window.
+        mfe_r = (mfe * fill) / risk_unit
+        fee_buffer = fill * (2 * float(trade["fee_rate"]) + 2 * slip)
+        managed_stop = stop
+        note = management_note
+        if exit_mode in {"BREAKEVEN", "TRAILING", "SMART"} and bars_held >= max(2, int(trade["max_holding_bars"]) // 2):
+            if mfe_r >= 0.50:
+                breakeven = fill + fee_buffer if side == "LONG" else fill - fee_buffer
+                managed_stop = max(managed_stop, breakeven) if side == "LONG" else min(managed_stop, breakeven)
+                note = "浮盈达到0.5R，止损已移动到含费用保本位"
+            if exit_mode in {"TRAILING", "SMART"} and mfe_r >= 0.80:
+                locked_r = max(0.20, mfe_r * 0.60)
+                trailing = fill + locked_r * risk_unit if side == "LONG" else fill - locked_r * risk_unit
+                managed_stop = max(managed_stop, trailing) if side == "LONG" else min(managed_stop, trailing)
+                note = f"移动止盈生效，当前锁定约{locked_r:.2f}R"
+        stop = managed_stop
+        hit_stop = c.l <= stop if side == "LONG" else c.h >= stop
+        hit_target = c.h >= target if side == "LONG" else c.l <= target
 
         # With OHLC data the intrabar order is unknowable. Use conservative SL-first.
         if hit_stop:
             exit_price = stop * (1 - slip if side == "LONG" else 1 + slip)
             changes.update(_close_values({**trade, **changes, "fill_price": fill}, exit_price,
-                                         "SL" if not hit_target else "SL_FIRST_AMBIGUOUS", c.t))
+                                         (("TRAILING_STOP" if stop != original_stop else "SL") if not hit_target else "SL_FIRST_AMBIGUOUS"), c.t))
             status = "CLOSED"
             break
         if hit_target:
@@ -239,16 +287,34 @@ def evaluate_trade(trade_id: str, candles: list[Candle]) -> dict[str, Any]:
             changes.update(_close_values({**trade, **changes, "fill_price": fill}, exit_price, "TP", c.t))
             status = "CLOSED"
             break
-        if bars_held >= int(trade["max_holding_bars"]):
-            exit_price = c.c * (1 - slip if side == "LONG" else 1 + slip)
-            changes.update(_close_values({**trade, **changes, "fill_price": fill}, exit_price, "TIME", c.t))
-            status = "CLOSED"
-            break
+        max_bars = int(trade["max_holding_bars"])
+        current_r = ((c.c - fill) if side == "LONG" else (fill - c.c)) / risk_unit
+        adverse_r = (mae * fill) / risk_unit
+        if bars_held >= max_bars:
+            reason = None
+            if exit_mode == "FIXED":
+                reason = "TIME"
+            elif exit_mode == "BREAKEVEN" and current_r >= -0.10:
+                reason = "TIME_NEAR_BREAKEVEN"
+            elif exit_mode == "MIN_LOSS" and (current_r >= -0.25 or (adverse_r > 0 and current_r >= -adverse_r * 0.45)):
+                reason = "TIME_MIN_LOSS"
+            elif exit_mode in {"TRAILING", "SMART"} and current_r > 0 and mfe_r - current_r >= max(0.20, mfe_r * 0.35):
+                reason = "TIME_LOCK_PROFIT"
+            elif exit_mode == "SMART" and current_r >= -0.15:
+                reason = "TIME_SMART_EXIT"
+            if bars_held >= max_bars + grace_bars:
+                reason = reason or "TIME_GRACE_LIMIT"
+            if reason:
+                exit_price = c.c * (1 - slip if side == "LONG" else 1 + slip)
+                changes.update(_close_values({**trade, **changes, "fill_price": fill, "stop": original_stop}, exit_price, reason, c.t))
+                status = "CLOSED"
+                break
 
     last = candles[-1].c
     changes.update({
         "updated_at": _now(), "last_mark": last, "last_checked_at": candles[-1].t,
         "max_favorable_excursion": mfe, "max_adverse_excursion": mae, "bars_held": bars_held,
+        "stop": stop, "best_price": best_price, "management_note": note,
     })
     fields = list(changes)
     with _LOCK, _conn() as conn:

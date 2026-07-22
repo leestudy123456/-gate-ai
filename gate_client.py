@@ -216,11 +216,14 @@ async def fetch_recent_candles(
     contract: str,
     interval: str,
     limit: int = 300,
+    min_bars: int = 220,
 ) -> tuple[list[Candle], list[str]]:
     if interval not in INTERVAL_SECONDS:
         raise GateDataError("暂不支持该周期")
     if not 50 <= limit <= MAX_PAGE_BARS:
         raise GateDataError(f"limit应在50到{MAX_PAGE_BARS}之间")
+    if not 1 <= min_bars <= limit:
+        raise GateDataError("min_bars必须在1到limit之间")
 
     params = {
         "contract": normalize_contract(contract),
@@ -229,8 +232,8 @@ async def fetch_recent_candles(
     }
     payload = await _get(params)
     candles, warnings = _clean(payload, interval, closed_only=True)
-    if len(candles) < 220:
-        raise GateDataError(f"有效已收盘K线不足：仅 {len(candles)} 根")
+    if len(candles) < min_bars:
+        raise GateDataError(f"有效已收盘K线不足：仅 {len(candles)} 根，需要至少 {min_bars} 根")
     return candles, warnings
 
 

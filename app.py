@@ -25,8 +25,10 @@ from model_card import model_card
 from decision_engine import build_decision_engine
 from simulator import create_trade, evaluate_trade, init_db as initialize_simulation_store, list_trades, manual_close, stats as simulation_stats
 from strategy_lab import performance as strategy_lab_performance, replay as strategy_lab_replay
+from position_manager import calculate_position
+from kline_analysis import analyze_kline
 
-app = FastAPI(title="Gate AI Quant Professional 11.1 Stable Mobile", version="11.1.0")
+app = FastAPI(title="Gate AI Quant V12 Professional Mobile", version="12.0.0")
 BASE = Path(__file__).resolve().parent
 DATA_DIR = BASE / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,9 +63,13 @@ class PredictionRequest(BaseModel):
 class PositionSizeRequest(BaseModel):
     account_balance: float = Field(gt=0)
     risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    side: str = Field(default="LONG")
     entry: float = Field(gt=0)
     stop: float = Field(gt=0)
     leverage: float = Field(default=1.0, ge=1.0, le=100.0)
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+    max_margin_fraction: float = Field(default=0.95, gt=0.05, le=1.0)
 
 
 
@@ -132,7 +138,9 @@ class SimulationCreateRequest(BaseModel):
     leverage: float = Field(default=1.0, ge=1.0, le=100.0)
     fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
     slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
-    max_holding_bars: int = Field(default=24, ge=1, le=500)
+    max_holding_bars: int = Field(default=30, ge=1, le=500)
+    exit_mode: str = Field(default="SMART")
+    grace_bars: int = Field(default=6, ge=0, le=100)
     strategy: dict = Field(default_factory=dict)
     notes: str = Field(default="", max_length=500)
 
@@ -170,7 +178,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "11.1.0", "edition": "Multi-Factor Engine + AI Strategy Lab + Stable Storage Init"}
+    return {"ok": True, "version": "12.0.0", "edition": "Professional: separated analysis, fast strategy, position manager, smart exits"}
 
 
 @app.get("/api/model-card")
@@ -215,6 +223,29 @@ async def analyze_api(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+
+
+@app.get("/api/kline-analysis")
+async def kline_analysis_api(contract: str = Query(default="BTC_USDT"), interval: str = Query(default="15m")) -> dict:
+    try:
+        candles, warnings = await asyncio.wait_for(fetch_recent_candles(contract, interval, 300, min_bars=220), timeout=18)
+        return {"ok": True, "contract": contract.upper(), "interval": interval, "result": analyze_kline(candles), "warnings": warnings}
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.get("/api/strategy/quick")
+async def quick_strategy_api(contract: str = Query(default="BTC_USDT"), interval: str = Query(default="15m"), account_balance: float = Query(default=1000, gt=0), risk_fraction: float = Query(default=.01, gt=0, le=.05)) -> dict:
+    try:
+        candles, warnings = await asyncio.wait_for(fetch_recent_candles(contract, interval, 300, min_bars=220), timeout=18)
+        snapshot = build_signal(candles); signal=snapshot_to_dict(snapshot)
+        side=signal.get("side")
+        position=None
+        if side in {"LONG","SHORT"} and signal.get("entry") and signal.get("stop"):
+            position=calculate_position(account_balance=account_balance,risk_fraction=risk_fraction,side=side,entry=float(signal["entry"]),stop=float(signal["stop"]),leverage=3,fee_rate=.0005,slippage_rate=.0002)
+        action_zh={"LONG":"做多","SHORT":"做空","FLAT":"观望"}.get(side,"观望")
+        return {"ok":True,"result":{"contract":contract.upper(),"interval":interval,"side":side,"action_zh":action_zh,"entry":signal.get("entry"),"stop":signal.get("stop"),"target":signal.get("target"),"risk_reward":signal.get("risk_reward"),"confidence":signal.get("confidence"),"regime":signal.get("regime"),"position":position,"rationale":signal.get("factor_details") or signal.get("reasons") or [],"exit_rules":["达到止损或止盈退出","浮盈达到0.5R后保护成本","达到最长持有K线后进入智能退出观察窗口"],"warnings":warnings},"notice":"快速策略使用最近已收盘K线，不执行耗时历史验证；历史胜率请到历史研究单独验证。"}
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/decision-engine")
@@ -277,7 +308,7 @@ async def trade_plan_api(req: TradePlanRequest) -> dict:
 @app.post("/api/simulation/create")
 async def simulation_create_api(req: SimulationCreateRequest) -> dict:
     try:
-        candles, warnings = await asyncio.wait_for(fetch_recent_candles(req.contract, req.interval, 60), timeout=15)
+        candles, warnings = await asyncio.wait_for(fetch_recent_candles(req.contract, req.interval, 300, min_bars=220), timeout=15)
         market_price = float(candles[-1].c)
         trade = create_trade(
             contract=req.contract, interval=req.interval, side=req.side,
@@ -286,6 +317,7 @@ async def simulation_create_api(req: SimulationCreateRequest) -> dict:
             account_balance=req.account_balance, risk_fraction=req.risk_fraction,
             leverage=req.leverage, fee_rate=req.fee_rate,
             slippage_rate=req.slippage_rate, max_holding_bars=req.max_holding_bars,
+            exit_mode=req.exit_mode, grace_bars=req.grace_bars,
             strategy=req.strategy, notes=req.notes,
         )
         return {"ok": True, "result": trade, "market_price": market_price, "data_warnings": warnings,
@@ -298,18 +330,24 @@ async def simulation_create_api(req: SimulationCreateRequest) -> dict:
 async def simulation_trades_api(status: str = Query(default="ALL"), refresh: bool = Query(default=True)) -> dict:
     try:
         trades = list_trades(100, status)
+        refresh_errors: list[str] = []
         if refresh:
             active = [t for t in trades if t.get("status") in {"OPEN", "PENDING"}]
             async def update_one(t: dict) -> dict:
                 try:
-                    candles, _ = await asyncio.wait_for(fetch_recent_candles(t["contract"], t["interval"], 300), timeout=12)
+                    candles, _ = await asyncio.wait_for(
+                        fetch_recent_candles(t["contract"], t["interval"], 300, min_bars=220),
+                        timeout=12,
+                    )
                     return evaluate_trade(t["id"], candles)
-                except Exception:
+                except Exception as exc:
+                    refresh_errors.append(f"{t['contract']} {t['interval']}：{exc}")
                     return t
             if active:
                 await asyncio.gather(*(update_one(t) for t in active[:20]))
             trades = list_trades(100, status)
         return {"ok": True, "result": trades, "stats": simulation_stats(),
+                "refresh_errors": refresh_errors,
                 "storage_notice": "默认数据库位于应用本地目录；Render免费实例重新部署可能清空记录，正式长期使用需挂载持久磁盘。"}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -336,7 +374,7 @@ async def simulation_close_api(req: SimulationCloseRequest) -> dict:
         trade = next((t for t in list_trades(500) if t["id"] == req.trade_id), None)
         if not trade:
             raise ValueError("找不到该模拟交易")
-        candles, _ = await asyncio.wait_for(fetch_recent_candles(trade["contract"], trade["interval"], 20), timeout=12)
+        candles, _ = await asyncio.wait_for(fetch_recent_candles(trade["contract"], trade["interval"], 60, min_bars=1), timeout=12)
         result = manual_close(req.trade_id, float(candles[-1].c))
         return {"ok": True, "result": result, "stats": simulation_stats()}
     except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
@@ -553,29 +591,13 @@ async def dashboard_api() -> dict:
 
 @app.post("/api/position-size")
 async def position_size_api(req: PositionSizeRequest) -> dict:
-    risk_per_unit = abs(req.entry - req.stop)
-    if risk_per_unit <= 0:
-        raise HTTPException(status_code=400, detail="入场价与止损价不能相同")
-
-    max_loss = req.account_balance * req.risk_fraction
-    quantity = max_loss / risk_per_unit
-    notional = quantity * req.entry
-    estimated_margin = notional / req.leverage
-
-    return {
-        "ok": True,
-        "result": {
-            "account_balance": req.account_balance,
-            "risk_fraction": req.risk_fraction,
-            "max_loss": max_loss,
-            "risk_per_unit": risk_per_unit,
-            "quantity": quantity,
-            "notional": notional,
-            "leverage": req.leverage,
-            "estimated_margin": estimated_margin,
-        },
-        "notice": "未计入强平、资金费率、手续费、滑点和最小下单单位；仅作风险预算参考。",
-    }
+    try:
+        result = calculate_position(account_balance=req.account_balance, risk_fraction=req.risk_fraction, side=req.side,
+            entry=req.entry, stop=req.stop, leverage=req.leverage, fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate, max_margin_fraction=req.max_margin_fraction)
+        return {"ok": True, "result": result, "notice": "已计入双边手续费、滑点、方向校验和保证金上限；交易所最小下单单位仍需下单前核对。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/advanced-risk")

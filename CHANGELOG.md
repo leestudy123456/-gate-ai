@@ -1,3 +1,20 @@
+# 11.3 Smart Exit Manager
+
+- Added configurable maximum holding bars (1–500) with mobile presets.
+- Added interval-aware holding-time display and regime-based AI recommendation.
+- Added SMART, BREAKEVEN, MIN_LOSS, TRAILING and FIXED exit modes.
+- Added configurable grace bars after the planned holding window.
+- Added fee/slippage-aware breakeven stop and R-based trailing protection.
+- Added automatic SQLite schema migration for existing deployments.
+- Added management status and richer exit reasons to the simulation journal.
+
+# 11.2 Simulation Fix
+
+- 修复“开始模拟交易”固定报有效K线仅59根的问题。
+- 修复手动平仓调用少于API最小limit的问题。
+- 新增按用途配置 min_bars。
+- 模拟持仓刷新返回可见错误信息。
+
 ## 9.2.0 — Trade Decision Center
 
 - Scanner results redesigned as decision cards.
@@ -101,3 +118,13 @@
 - 保留 SIM_DB_PATH 环境变量，方便 Render 持久磁盘部署。
 - 更新版本标识和静态资源缓存版本。
 - 增加 data/.gitkeep，GitHub 上传后不再丢失空目录。
+
+## 12.0 Professional
+
+- Separate AI decision and K-line analysis endpoints.
+- Add fast strategy endpoint to avoid research-page timeout.
+- Replace basic position sizing with direction-aware professional risk sizing.
+- Include fees, slippage, leverage/margin cap, worst-case loss and safety warnings.
+- Separate scanner AI and chart actions.
+- Preserve V11.3 smart exit and custom holding-bar manager.
+- Improve timeout error messages and bump mobile asset cache version.
