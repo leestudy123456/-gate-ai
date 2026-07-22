@@ -25,7 +25,7 @@ from model_card import model_card
 from decision_engine import build_decision_engine
 from simulator import create_trade, evaluate_trade, list_trades, manual_close, stats as simulation_stats
 
-app = FastAPI(title="Gate AI Quant Professional 9.0 Mobile", version="9.0.0")
+app = FastAPI(title="Gate AI Quant Professional 9.2 Mobile", version="9.2.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -165,7 +165,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "9.0.0", "edition": "Calibrated Paper Trading Journal"}
+    return {"ok": True, "version": "9.2.0", "edition": "Trade Decision Center + Direct Paper Trading"}
 
 
 @app.get("/api/model-card")

@@ -1,3 +1,20 @@
+## 9.2.0 — Trade Decision Center
+
+- Scanner results redesigned as decision cards.
+- Added direct paper-trading button to every scan result.
+- Automatically prefills contract, side, entry, stop and target.
+- Added model-confidence stars, RR, recommendation label and favorites.
+- Added explicit AI analysis and candle-data actions for mobile.
+
+## 9.1.0 — Scanner Interaction Hotfix
+
+- 修复扫描结果点击无反应。
+- 每个扫描结果新增明确的“AI分析”和“选择币种”按钮。
+- 点击AI分析会自动切换币种、同步周期、返回总览并启动实时分析。
+- 增加事件委托，避免列表重绘后点击事件丢失。
+- 修复顶部5个导航标签在手机端的布局。
+- 增加前端缓存版本号，避免手机继续加载旧JavaScript。
+
 # Gate AI Quant 8.0
 
 - 决策概率改用按时间顺序切分的严格样本外测试集。
