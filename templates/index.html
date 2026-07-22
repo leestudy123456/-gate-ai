@@ -1,5 +1,5 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant Professional 11.1 Stable Mobile</title><link rel="stylesheet" href="/static/style.css?v=11.1.0"></head><body>
-<main><header><div><span class="version">PRO 11.1 STABLE STRATEGY LAB</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant V12 Professional Mobile</title><link rel="stylesheet" href="/static/style.css?v=12.0.0"></head><body>
+<main><header><div><span class="version">V12 PROFESSIONAL</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
 <nav class="tabs" aria-label="主要功能"><button class="tab active" data-target="dashboardPanel">总览</button><button class="tab" data-target="researchPanel">研究</button><button class="tab" data-target="scannerPanel">排行</button><button class="tab" data-target="predictionPanel">预测</button><button class="tab" data-target="simulationPanel">模拟</button></nav>
 
 <section id="dashboardPanel" class="panel">
@@ -13,18 +13,18 @@
 </section>
 
 <section id="researchPanel" class="panel hidden">
-  <section class="card decision-engine-card"><div class="section-head"><div><h2>11.1 AI 多因子决策引擎</h2><p>五个可解释子模型投票，并由风险引擎执行最终否决。</p></div><button id="decisionBtn" class="compact">运行决策</button></div>
+  <section class="card decision-engine-card"><div class="section-head"><div><h2>V12 AI 多因子决策引擎</h2><p>五个可解释子模型投票，并由风险引擎执行最终否决。</p></div><button id="decisionBtn" class="compact">运行决策</button></div>
     <div class="grid two compact-fields"><label>决策账户余额<input id="decisionBalance" type="number" value="1000"></label><label>风险上限<select id="decisionRiskCap"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label></div>
     <div id="decisionStatus" class="status idle">等待运行</div><div id="decisionResult" class="hidden"></div>
   </section>
-  <section class="card"><div class="section-head"><div><h2>实时分析</h2><p>EMA、MACD、RSI、ATR、ADX与市场状态综合评分。</p></div><button id="analyzeBtn" class="compact">分析</button></div><div id="analysisStatus" class="status idle">等待分析</div>
+  <section class="card"><div class="section-head"><div><h2>实时分析</h2><p>EMA、MACD、RSI、ATR、ADX与市场状态综合评分。</p></div><div class="action-inline"><button id="analyzeBtn" class="compact">AI决策</button><button id="klineBtn" class="compact secondary">K线分析</button></div></div><div id="analysisStatus" class="status idle">等待分析</div>
     <div id="signalCard" class="hidden"><div class="signal-hero"><div><span>方向</span><strong id="signalSide">—</strong></div><div><span>信心</span><strong id="signalConfidence">—</strong></div><div><span>风险</span><strong id="signalRisk">—</strong></div><div><span>状态</span><strong id="signalRegime">—</strong></div></div>
       <div class="score"><span>做多</span><div class="bar"><i id="longBar"></i></div><b id="longScore">—</b></div><div class="score"><span>做空</span><div class="bar"><i id="shortBar"></i></div><b id="shortScore">—</b></div>
       <div class="validity-strip"><div><span>生成时间</span><strong id="generatedAt">—</strong></div><div><span>策略有效至</span><strong id="expiresAt">—</strong></div><div><span>剩余时间</span><strong id="countdown">—</strong></div></div><div class="metric-grid"><article><span>参考入场</span><strong id="entryValue">—</strong></article><article><span>止损</span><strong id="stopValue">—</strong></article><article><span>目标</span><strong id="targetValue">—</strong></article><article><span>盈亏比</span><strong id="rrValue">—</strong></article><article><span>ADX</span><strong id="signalAdx">—</strong></article><article><span>波动分位</span><strong id="signalVolPct">—</strong></article><article><span>数据质量</span><strong id="dataQualityGrade">—</strong></article><article><span>质量评分</span><strong id="dataQualityScore">—</strong></article><article><span>资金费率</span><strong id="fundingRate">—</strong></article><article><span>拥挤状态</span><strong id="fundingCrowding">—</strong></article></div>
-      <div id="scoreNotice" class="notice-box compact-note">模型评分，不等于真实胜率。</div><div id="recommendation" class="recommendation"></div><div id="qualityIssues" class="factor-list"></div><div id="factorList" class="factor-list"></div></div><div id="analysis" class="notice-box">分析后会在这里显示指标明细。</div>
+      <div id="scoreNotice" class="notice-box compact-note">模型评分，不等于真实胜率。</div><div id="recommendation" class="recommendation"></div><div id="qualityIssues" class="factor-list"></div><div id="factorList" class="factor-list"></div></div><div id="analysis" class="notice-box">AI决策完成后显示综合指标。</div><div id="klineResult" class="notice-box hidden"></div>
   </section>
   <section class="card strategy-card"><div class="section-head"><div><h2>策略与交易计划</h2><p>结合样本外命中率、置信区间、数据质量和调整Kelly生成条件计划。</p></div><button id="tradePlanBtn" class="compact">生成策略</button></div><div class="grid two compact-fields"><label>用于计划的账户余额<input id="planBalance" type="number" value="1000"></label><label>单笔风险上限<select id="planRiskCap"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label></div><div id="tradePlanStatus" class="status idle">等待生成</div><div id="tradePlanResult" class="hidden"></div></section>
-  <section class="card"><h2>仓位预算</h2><div class="grid two"><label>账户余额<input id="accountBalance" type="number" value="1000"></label><label>风险比例<select id="positionRisk"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label><label>入场价<input id="positionEntry" type="number"></label><label>止损价<input id="positionStop" type="number"></label><label>杠杆<input id="positionLeverage" type="number" value="1"></label></div><button id="positionBtn">计算仓位</button><div id="positionResult" class="notice-box">先运行实时分析可自动填入入场价与止损价。</div></section>
+  <section class="card"><h2>专业仓位管理</h2><div class="grid two"><label>交易方向<select id="positionSide"><option value="LONG">做多 LONG</option><option value="SHORT">做空 SHORT</option></select></label><label>账户余额<input id="accountBalance" type="number" value="1000"></label><label>风险比例<select id="positionRisk"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label><label>入场价<input id="positionEntry" type="number"></label><label>止损价<input id="positionStop" type="number"></label><label>杠杆<input id="positionLeverage" type="number" value="3" min="1" max="100"></label><label>保证金使用上限<select id="positionMarginCap"><option value="0.5">50%</option><option value="0.7">70%</option><option value="0.95" selected>95%</option></select></label></div><button id="positionBtn">计算仓位</button><div id="positionResult" class="notice-box">先运行实时分析可自动填入入场价与止损价。</div></section>
   <section class="card"><h2>历史研究</h2><div class="grid two"><label>开始日期<input id="start" type="date"></label><label>结束日期<input id="end" type="date"></label><label>信号阈值 <button type="button" class="term" data-term="threshold">?</button><input id="threshold" type="number" value="72"></label><label>风险比例<input id="risk" type="number" step="0.001" value="0.01"></label><label>单边手续费 <button type="button" class="term" data-term="fee">?</button><input id="fee" type="number" step="0.0001" value="0.0005"></label><label>单边滑点 <button type="button" class="term" data-term="slippage">?</button><input id="slippage" type="number" step="0.0001" value="0.0002"></label></div>
     <div class="grid two"><label>方向验证样本<select id="directionSamples"><option>50</option><option selected>100</option><option>300</option><option>500</option></select></label><label>方向验证周期<select id="directionInterval"><option selected>5m</option><option>15m</option><option>1h</option></select></label></div>
     <div class="action-grid"><button id="directionBtn">5分钟概率验证</button><button id="backtestBtn">策略回测</button><button id="optimizeBtn" class="secondary">优化</button><button id="wfBtn" class="secondary">滚动验证 <span class="term-inline" data-term="walkforward">?</span></button><button id="mcBtn" class="secondary">Monte Carlo <span class="term-inline" data-term="montecarlo">?</span></button></div><input id="trainBars" type="hidden" value="1200"><input id="testBars" type="hidden" value="400"><div id="directionResult" class="notice-box hidden"></div><div id="backtest" class="result-grid"></div><div id="optimize" class="notice-box hidden"></div><div id="wf" class="notice-box hidden"></div><div id="mc" class="notice-box hidden"></div>
@@ -43,7 +43,7 @@
 
 <section id="simulationPanel" class="panel hidden">
   <section class="card">
-    <div class="section-head"><div><h2>11.1 AI Strategy Lab</h2><p>将AI决策、模拟执行、绩效归因与决策回放连接成研究闭环；不连接Gate账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
+    <div class="section-head"><div><h2>V12 AI Strategy Lab</h2><p>将AI决策、模拟执行、绩效归因与决策回放连接成研究闭环；不连接Gate账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
     <div class="grid two compact-fields">
       <label>方向<select id="simSide"><option>LONG</option><option>SHORT</option></select></label>
       <label>订单类型<select id="simOrderType"><option value="MARKET" selected>市价模拟（立即成交）</option><option value="LIMIT">策略入场（触价成交）</option></select></label>
@@ -53,8 +53,15 @@
       <label>账户余额<input id="simBalance" type="number" value="1000"></label>
       <label>单笔风险<select id="simRisk"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label>
       <label>杠杆<input id="simLeverage" type="number" value="1" min="1" max="100"></label>
-      <label>最长持有K线<input id="simMaxBars" type="number" value="24" min="1" max="500"></label>
-      <label>备注<input id="simNotes" maxlength="500" placeholder="例如：9.2 扫描直达或AI决策"></label>
+      <label>最长持有K线
+        <input id="simMaxBars" type="number" value="30" min="1" max="500" list="simBarsPresets">
+        <datalist id="simBarsPresets"><option value="12"><option value="24"><option value="30"><option value="36"><option value="48"><option value="72"></datalist>
+        <small id="simBarsTime">30根</small>
+      </label>
+      <label>到期处理方式<select id="simExitMode"><option value="SMART" selected>AI动态退出（推荐）</option><option value="BREAKEVEN">保本优先</option><option value="MIN_LOSS">最小亏损优先</option><option value="TRAILING">移动止盈</option><option value="FIXED">固定时间平仓</option></select></label>
+      <label>智能退出观察窗口<input id="simGraceBars" type="number" value="6" min="0" max="100"><small>达到最长持有时间后，最多再观察这些K线寻找更优退出点。</small></label>
+      <div id="simExitHelp" class="notice-box compact-note">AI动态退出：前半程保持原止盈止损；后半程达到0.5R后移到保本，达到0.8R后启用移动止盈；到期后在观察窗口内寻找保本、锁盈或较小亏损退出点。</div>
+      <label>备注<input id="simNotes" maxlength="500" placeholder="例如：AI决策直达或自定义计划"></label>
     </div>
     <button id="simCreateBtn">开始模拟交易</button>
     <div id="simStatus" class="status idle">可先运行 AI 决策，再自动带入方向与价格。</div>
@@ -74,4 +81,4 @@
   <section class="card"><div class="section-head"><div><h2>模拟交易日志与决策回放</h2><p>更新行情会检查入场、止盈、止损和超时；“回放”读取建仓时保存的AI快照。</p></div></div><div id="simTrades" class="rank-list"><div class="list-empty">暂无模拟交易。</div></div></section>
   <section id="replayCard" class="card hidden"><div class="section-head"><div><h2>AI 决策回放</h2><p id="replayTitle">—</p></div><button id="replayCloseBtn" class="compact secondary">关闭</button></div><div id="replayResult"></div></section>
 </section>
-<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=11.1.0"></script></body></html>
+<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=12.0.0"></script></body></html>
