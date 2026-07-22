@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
 
 
-DB_PATH = Path(__file__).resolve().parent / "gate_ai_quant.db"
+BASE = Path(__file__).resolve().parent
+DB_PATH = Path(os.getenv("SIGNAL_DB_PATH", str(BASE / "data" / "gate_ai_quant.db")))
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def initialize() -> None:

@@ -7,6 +7,7 @@ from data_quality import assess_data_quality
 from direction_validation import validate_next_bar_direction
 from gate_client import Candle, INTERVAL_SECONDS
 from strategy import build_signal, snapshot_to_dict
+from decision_v2 import build_v10_layer
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -205,8 +206,8 @@ def build_decision_engine(
         _clamp(calibrated_probability + margin, 0.0, 1.0) * 100.0,
     ]
 
-    return {
-        "version": "9.0.0",
+    result = {
+        "version": "11.0.0",
         "action": action,
         "action_zh": action_zh,
         "grade": _grade(confidence_score),
@@ -246,3 +247,15 @@ def build_decision_engine(
         ),
         "notice": "校准概率来自历史样本并做保守折扣，不是未来收益保证；系统不连接账户、不自动下单。",
     }
+    v10 = build_v10_layer(signal, candles, quality, result["calibration"], funding, interval=interval)
+    result.update(v10)
+    # 风险引擎拥有最终否决权；多模型投票只作为第二意见，不伪装成已训练的机器学习模型。
+    if not v10["risk_engine"]["trade_allowed"]:
+        result["action"] = "WAIT"
+        result["action_zh"] = "高风险观望"
+        result["blockers"].append("11.0风险引擎判定当前风险过高")
+    elif v10["voting"]["side"] not in {"FLAT", signal.side} and result["action"] != "WAIT":
+        result["action"] = "WAIT"
+        result["action_zh"] = "模型分歧观望"
+        result["blockers"].append("多模型投票与技术主方向冲突")
+    return result

@@ -17,16 +17,21 @@ from optimizer import optimize_parameters
 from validation import walk_forward_validate, monte_carlo_trade_paths
 from market_scanner import scan_market, multi_timeframe_consensus
 from prediction_value import analyze_prediction_value
-from signal_store import save_signal, recent_signals
+from signal_store import initialize as initialize_signal_store, save_signal, recent_signals
 from data_quality import assess_data_quality
 from direction_validation import validate_next_bar_direction
 from trade_plan import build_trade_plan
 from model_card import model_card
 from decision_engine import build_decision_engine
-from simulator import create_trade, evaluate_trade, list_trades, manual_close, stats as simulation_stats
+from simulator import create_trade, evaluate_trade, init_db as initialize_simulation_store, list_trades, manual_close, stats as simulation_stats
+from strategy_lab import performance as strategy_lab_performance, replay as strategy_lab_replay
 
-app = FastAPI(title="Gate AI Quant Professional 9.2 Mobile", version="9.2.0")
+app = FastAPI(title="Gate AI Quant Professional 11.1 Stable Mobile", version="11.1.0")
 BASE = Path(__file__).resolve().parent
+DATA_DIR = BASE / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+initialize_signal_store()
+initialize_simulation_store()
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
 
@@ -165,7 +170,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "9.2.0", "edition": "Trade Decision Center + Direct Paper Trading"}
+    return {"ok": True, "version": "11.1.0", "edition": "Multi-Factor Engine + AI Strategy Lab + Stable Storage Init"}
 
 
 @app.get("/api/model-card")
@@ -308,6 +313,21 @@ async def simulation_trades_api(status: str = Query(default="ALL"), refresh: boo
                 "storage_notice": "默认数据库位于应用本地目录；Render免费实例重新部署可能清空记录，正式长期使用需挂载持久磁盘。"}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+
+
+@app.get("/api/strategy-lab/performance")
+async def strategy_lab_performance_api(limit: int = Query(default=500, ge=20, le=500)) -> dict:
+    return {"ok": True, "result": strategy_lab_performance(limit)}
+
+
+@app.get("/api/strategy-lab/replay/{trade_id}")
+async def strategy_lab_replay_api(trade_id: str) -> dict:
+    try:
+        return {"ok": True, "result": strategy_lab_replay(trade_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/simulation/close")
