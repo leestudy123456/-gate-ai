@@ -1,5 +1,5 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant Professional 9.0 Mobile</title><link rel="stylesheet" href="/static/style.css?v=9.0.0"></head><body>
-<main><header><div><span class="version">PRO 9.0 PAPER TRADING MOBILE</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant Professional 9.2 Mobile</title><link rel="stylesheet" href="/static/style.css?v=9.2.0"></head><body>
+<main><header><div><span class="version">PRO 9.2 TRADE DECISION CENTER</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
 <nav class="tabs" aria-label="主要功能"><button class="tab active" data-target="dashboardPanel">总览</button><button class="tab" data-target="researchPanel">研究</button><button class="tab" data-target="scannerPanel">排行</button><button class="tab" data-target="predictionPanel">预测</button><button class="tab" data-target="simulationPanel">模拟</button></nav>
 
 <section id="dashboardPanel" class="panel">
@@ -43,7 +43,7 @@
 
 <section id="simulationPanel" class="panel hidden">
   <section class="card">
-    <div class="section-head"><div><h2>9.0 模拟交易</h2><p>使用公开行情跟踪策略，不连接 Gate 账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
+    <div class="section-head"><div><h2>9.2 模拟交易</h2><p>使用公开行情跟踪策略，不连接 Gate 账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
     <div class="grid two compact-fields">
       <label>方向<select id="simSide"><option>LONG</option><option>SHORT</option></select></label>
       <label>订单类型<select id="simOrderType"><option value="MARKET" selected>市价模拟（立即成交）</option><option value="LIMIT">策略入场（触价成交）</option></select></label>
@@ -54,7 +54,7 @@
       <label>单笔风险<select id="simRisk"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label>
       <label>杠杆<input id="simLeverage" type="number" value="1" min="1" max="100"></label>
       <label>最长持有K线<input id="simMaxBars" type="number" value="24" min="1" max="500"></label>
-      <label>备注<input id="simNotes" maxlength="500" placeholder="例如：9.0 AI决策"></label>
+      <label>备注<input id="simNotes" maxlength="500" placeholder="例如：9.2 扫描直达或AI决策"></label>
     </div>
     <button id="simCreateBtn">开始模拟交易</button>
     <div id="simStatus" class="status idle">可先运行 AI 决策，再自动带入方向与价格。</div>
@@ -67,4 +67,4 @@
   </section>
   <section class="card"><div class="section-head"><div><h2>模拟交易日志</h2><p>点击“更新行情”会检查入场、止盈、止损和超时条件。</p></div></div><div id="simTrades" class="rank-list"><div class="list-empty">暂无模拟交易。</div></div></section>
 </section>
-<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=9.0.0"></script></body></html>
+<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=9.2.0"></script></body></html>
