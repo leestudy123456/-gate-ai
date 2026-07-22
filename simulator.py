@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import math
 
 from gate_client import Candle
 
@@ -101,6 +102,20 @@ def _row(row: sqlite3.Row) -> dict[str, Any]:
     for k in ("created_at", "updated_at", "opened_at", "closed_at", "last_checked_at"):
         if out.get(k):
             out[k + "_iso"] = datetime.fromtimestamp(out[k], tz=timezone.utc).isoformat()
+    mark = float(out.get("last_mark") or out.get("requested_entry") or 0)
+    entry = float(out.get("requested_entry") or 0)
+    if out.get("status") == "PENDING" and entry > 0:
+        out["distance_to_entry_pct"] = round(abs(mark-entry)/entry*100, 4)
+        out["lifecycle_stage"] = "WAITING_ENTRY"
+        out["ai_state"] = "接近成交" if out["distance_to_entry_pct"] <= 0.2 else "继续等待挂单"
+    elif out.get("status") == "OPEN":
+        out["lifecycle_stage"] = "POSITION_MANAGEMENT"
+        out["ai_state"] = str(out.get("management_note") or "继续按止盈止损与智能退出规则管理")
+    elif out.get("status") == "CLOSED":
+        out["lifecycle_stage"] = "REVIEW"
+        out["review"] = _trade_review(out)
+    else:
+        out["lifecycle_stage"] = out.get("status")
     return out
 
 
@@ -109,7 +124,8 @@ def create_trade(*, contract: str, interval: str, side: str, order_type: str,
                  account_balance: float, risk_fraction: float, leverage: float,
                  fee_rate: float, slippage_rate: float, max_holding_bars: int,
                  exit_mode: str = "SMART", grace_bars: int = 6,
-                 strategy: dict[str, Any] | None = None, notes: str = "") -> dict[str, Any]:
+                 strategy: dict[str, Any] | None = None, notes: str = "",
+                 duplicate_policy: str = "REPLACE") -> dict[str, Any]:
     init_db()
     side = side.upper()
     order_type = order_type.upper()
@@ -128,6 +144,27 @@ def create_trade(*, contract: str, interval: str, side: str, order_type: str,
         raise ValueError("做多必须满足：止损 < 入场 < 止盈")
     if side == "SHORT" and not (target < requested_entry < stop):
         raise ValueError("做空必须满足：止盈 < 入场 < 止损")
+    duplicate_policy = str(duplicate_policy or "REPLACE").upper()
+    if duplicate_policy not in {"REPLACE", "KEEP", "REJECT"}:
+        raise ValueError("重复订单处理方式必须为 REPLACE、KEEP 或 REJECT")
+
+    # Protect against double taps and retry submissions on mobile networks.
+    with _LOCK, _conn() as conn:
+        duplicate = conn.execute(
+            """SELECT id FROM sim_trades WHERE contract=? AND interval=? AND side=?
+               AND status='PENDING' ORDER BY created_at DESC LIMIT 1""",
+            (contract.upper(), interval, side),
+        ).fetchone()
+        if duplicate:
+            if duplicate_policy == "REJECT":
+                raise ValueError("该交易对、周期和方向已经存在待成交挂单")
+            if duplicate_policy == "REPLACE":
+                now_cancel = _now()
+                conn.execute(
+                    "UPDATE sim_trades SET status='CANCELLED',updated_at=?,closed_at=?,exit_reason='REPLACED' WHERE id=?",
+                    (now_cancel, now_cancel, duplicate["id"]),
+                )
+                conn.commit()
 
     risk_budget = account_balance * risk_fraction
     stop_distance = abs(requested_entry - stop)
@@ -349,6 +386,44 @@ def manual_close(trade_id: str, market_price: float) -> dict[str, Any]:
     return get_trade(trade_id)
 
 
+def clear_trades(scope: str = "ALL") -> dict[str, int]:
+    init_db()
+    scope = str(scope or "ALL").upper()
+    allowed = {"ALL", "CLOSED", "CANCELLED", "ACTIVE"}
+    if scope not in allowed:
+        raise ValueError("清理范围无效")
+    where = ""
+    if scope == "CLOSED":
+        where = " WHERE status='CLOSED'"
+    elif scope == "CANCELLED":
+        where = " WHERE status='CANCELLED'"
+    elif scope == "ACTIVE":
+        where = " WHERE status IN ('OPEN','PENDING')"
+    with _LOCK, _conn() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM sim_trades" + where).fetchone()[0]
+        conn.execute("DELETE FROM sim_trades" + where)
+        conn.commit()
+    return {"deleted": int(count)}
+
+
+def _trade_review(trade: dict[str, Any]) -> dict[str, Any]:
+    status = trade.get("status")
+    if status != "CLOSED":
+        return {}
+    r = float(trade.get("r_multiple") or 0)
+    mfe = float(trade.get("max_favorable_excursion") or 0)
+    mae = float(trade.get("max_adverse_excursion") or 0)
+    score = 60 + min(25, max(-25, r * 12)) + min(10, mfe * 200) - min(10, mae * 150)
+    score = int(max(0, min(100, round(score))))
+    discipline = "遵守计划" if trade.get("exit_reason") in {"TP","SL","TRAILING_STOP","TIME","TIME_NEAR_BREAKEVEN","TIME_MIN_LOSS","TIME_LOCK_PROFIT","TIME_SMART_EXIT","TIME_GRACE_LIMIT","SL_FIRST_AMBIGUOUS"} else "人工干预"
+    return {
+        "score": score,
+        "discipline": discipline,
+        "summary": "盈利并控制回撤" if r > 0 else "亏损已受止损或时间规则约束",
+        "improvement": "继续积累同类样本，重点比较实际MFE与最终退出R。" if r > 0 else "复查入场质量、止损距离与市场状态是否匹配。",
+    }
+
+
 def stats() -> dict[str, Any]:
     trades = [t for t in list_trades(500) if t["status"] == "CLOSED"]
     wins = [t for t in trades if float(t.get("net_pnl") or 0) > 0]
@@ -356,15 +431,36 @@ def stats() -> dict[str, Any]:
     gross_profit = sum(float(t.get("net_pnl") or 0) for t in wins)
     gross_loss = abs(sum(float(t.get("net_pnl") or 0) for t in losses))
     total = len(trades)
+    pnls = [float(t.get("net_pnl") or 0) for t in reversed(trades)]
+    rs = [float(t.get("r_multiple") or 0) for t in trades]
+    equity, curve, peak, max_dd = 0.0, [], 0.0, 0.0
+    for i, pnl in enumerate(pnls, 1):
+        equity += pnl; peak = max(peak, equity); max_dd = max(max_dd, peak - equity)
+        curve.append({"index": i, "equity": round(equity, 4)})
+    mean_r = sum(rs)/total if total else 0.0
+    variance = sum((x-mean_r)**2 for x in rs)/(total-1) if total > 1 else 0.0
+    std = math.sqrt(variance)
+    downside = [min(0.0, x) for x in rs]
+    downside_dev = math.sqrt(sum(x*x for x in downside)/len(downside)) if downside else 0.0
+    sharpe = mean_r/std*math.sqrt(total) if std > 0 else 0.0
+    sortino = mean_r/downside_dev*math.sqrt(total) if downside_dev > 0 else 0.0
+    avg_win = sum(float(t.get("r_multiple") or 0) for t in wins)/len(wins) if wins else 0.0
+    avg_loss = abs(sum(float(t.get("r_multiple") or 0) for t in losses)/len(losses)) if losses else 0.0
+    win_prob = len(wins)/total if total else 0.0
+    payoff = avg_win/avg_loss if avg_loss > 0 else 0.0
+    kelly = max(0.0, min(0.25, win_prob - (1-win_prob)/payoff)) if payoff > 0 else 0.0
+    by_side = {}
+    for side in ("LONG", "SHORT"):
+        bucket=[t for t in trades if t.get("side")==side]; bw=[t for t in bucket if float(t.get("net_pnl") or 0)>0]
+        by_side[side]={"trades":len(bucket),"win_rate_pct":round(len(bw)/len(bucket)*100,2) if bucket else 0.0,"net_pnl":round(sum(float(t.get("net_pnl") or 0) for t in bucket),4)}
     return {
-        "closed_trades": total,
-        "wins": len(wins),
-        "losses": len(losses),
-        "win_rate_pct": round(len(wins) / total * 100, 2) if total else 0.0,
-        "net_pnl": round(sum(float(t.get("net_pnl") or 0) for t in trades), 4),
-        "average_r": round(sum(float(t.get("r_multiple") or 0) for t in trades) / total, 3) if total else 0.0,
-        "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else (None if not gross_profit else 999.0),
-        "open_trades": len([t for t in list_trades(500) if t["status"] in {"OPEN", "PENDING"}]),
+        "closed_trades": total, "wins": len(wins), "losses": len(losses),
+        "win_rate_pct": round(len(wins)/total*100,2) if total else 0.0,
+        "net_pnl": round(sum(pnls),4), "average_r": round(mean_r,3),
+        "profit_factor": round(gross_profit/gross_loss,3) if gross_loss else (None if not gross_profit else 999.0),
+        "max_drawdown": round(max_dd,4), "sharpe": round(sharpe,3), "sortino": round(sortino,3),
+        "kelly_fraction": round(kelly,4), "by_side": by_side, "equity_curve": curve[-100:],
+        "open_trades": len([t for t in list_trades(500) if t["status"] in {"OPEN","PENDING"}]),
         "storage": str(DB_PATH),
     }
 

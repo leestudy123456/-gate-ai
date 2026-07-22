@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant V12.1 Stability Edition Mobile</title><link rel="stylesheet" href="/static/style.css?v=12.1.0"></head><body>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant V12.4 Stability Edition Mobile</title><link rel="stylesheet" href="/static/style.css?v=12.4.0"></head><body>
 <main><header><div><span class="version">V12 PROFESSIONAL</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
 <nav class="tabs" aria-label="主要功能"><button class="tab active" data-target="dashboardPanel">总览</button><button class="tab" data-target="researchPanel">研究</button><button class="tab" data-target="scannerPanel">排行</button><button class="tab" data-target="predictionPanel">预测</button><button class="tab" data-target="simulationPanel">模拟</button></nav>
 
@@ -43,7 +43,7 @@
 
 <section id="simulationPanel" class="panel hidden">
   <section class="card">
-    <div class="section-head"><div><h2>V12 AI Strategy Lab</h2><p>将AI决策、模拟执行、绩效归因与决策回放连接成研究闭环；不连接Gate账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
+    <div class="section-head"><div><h2>V12.4 Professional Trade Lifecycle</h2><p>将AI决策、模拟执行、绩效归因与决策回放连接成研究闭环；不连接Gate账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
     <div class="grid two compact-fields">
       <label>方向<select id="simSide"><option>LONG</option><option>SHORT</option></select></label>
       <label>订单类型<select id="simOrderType"><option value="MARKET" selected>市价模拟（立即成交）</option><option value="LIMIT">策略入场（触价成交）</option></select></label>
@@ -61,16 +61,16 @@
       <label>到期处理方式<select id="simExitMode"><option value="SMART" selected>AI动态退出（推荐）</option><option value="BREAKEVEN">保本优先</option><option value="MIN_LOSS">最小亏损优先</option><option value="TRAILING">移动止盈</option><option value="FIXED">固定时间平仓</option></select></label>
       <label>智能退出观察窗口<input id="simGraceBars" type="number" value="6" min="0" max="100"><small>达到最长持有时间后，最多再观察这些K线寻找更优退出点。</small></label>
       <div id="simExitHelp" class="notice-box compact-note">AI动态退出：前半程保持原止盈止损；后半程达到0.5R后移到保本，达到0.8R后启用移动止盈；到期后在观察窗口内寻找保本、锁盈或较小亏损退出点。</div>
-      <label>备注<input id="simNotes" maxlength="500" placeholder="例如：AI决策直达或自定义计划"></label>
+      <label>重复挂单处理<select id="simDuplicatePolicy"><option value="REPLACE" selected>覆盖旧挂单（推荐）</option><option value="REJECT">禁止重复</option><option value="KEEP">允许保留多笔</option></select></label><label>备注<input id="simNotes" maxlength="500" placeholder="例如：AI决策直达或自定义计划"></label>
     </div>
-    <button id="simCreateBtn">开始模拟交易</button>
+    <div class="action-row"><button id="simCreateBtn">开始模拟交易</button><button id="simPresetConservative" class="secondary">保守模板</button><button id="simPresetBalanced" class="secondary">平衡模板</button><button id="simPresetAggressive" class="secondary">激进模板</button></div>
     <div id="simStatus" class="status idle">可先运行 AI 决策，再自动带入方向与价格。</div>
     <div class="notice-box compact-note">判定规则：只读取已收盘K线；同一根K线同时触及止盈与止损时，因无法知道盘中先后顺序，保守按止损先发生。</div>
   </section>
   <section class="card">
-    <div class="section-head"><div><h2>模拟账户统计</h2><p>统计已结算模拟交易的成本后结果。</p></div><select id="simFilter" class="compact"><option value="ALL">全部</option><option value="OPEN">持仓中</option><option value="PENDING">待成交</option><option value="CLOSED">已结算</option><option value="CANCELLED">已取消</option></select></div>
+    <div class="section-head"><div><h2>模拟账户统计</h2><p>统计已结算模拟交易的成本后结果、方向表现与风险指标。</p></div><div class="action-row"><button id="simClearBtn" class="compact secondary">清空模拟记录</button><select id="simFilter" class="compact"><option value="ALL">全部</option><option value="OPEN">持仓中</option><option value="PENDING">待成交</option><option value="CLOSED">已结算</option><option value="CANCELLED">已取消</option></select></div></div>
     <div id="simStats" class="metric-grid"></div>
-    <div id="simStorageNotice" class="notice-box compact-note">尚未读取记录。</div>
+    <div id="simSideStats" class="lab-table"></div><div id="simStorageNotice" class="notice-box compact-note">尚未读取记录。</div>
   </section>
   <section class="card">
     <div class="section-head"><div><h2>AI 策略表现</h2><p>按策略等级、市场状态和方向归因；仅统计已结算模拟交易。</p></div><button id="labLoadBtn" class="compact secondary">刷新绩效</button></div>
@@ -78,7 +78,7 @@
     <div class="lab-grid"><div><h3>策略等级</h3><div id="labByGrade" class="lab-table"></div></div><div><h3>市场状态</h3><div id="labByRegime" class="lab-table"></div></div></div>
     <div id="labMethod" class="notice-box compact-note">建立并结算模拟交易后显示归因结果。</div>
   </section>
-  <section class="card"><div class="section-head"><div><h2>模拟交易日志与决策回放</h2><p>更新行情会检查入场、止盈、止损和超时；“回放”读取建仓时保存的AI快照。</p></div></div><div id="simTrades" class="rank-list"><div class="list-empty">暂无模拟交易。</div></div></section>
+  <section class="card"><div class="section-head"><div><h2>交易生命周期、AI管理与复盘</h2><p>待成交显示距离入场，持仓中显示AI管理状态，结算后生成交易复盘；“回放”读取建仓时保存的AI快照。</p></div></div><div id="simTrades" class="rank-list"><div class="list-empty">暂无模拟交易。</div></div></section>
   <section id="replayCard" class="card hidden"><div class="section-head"><div><h2>AI 决策回放</h2><p id="replayTitle">—</p></div><button id="replayCloseBtn" class="compact secondary">关闭</button></div><div id="replayResult"></div></section>
 </section>
-<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=12.1.0"></script></body></html>
+<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=12.4.0"></script></body></html>

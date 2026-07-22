@@ -23,12 +23,12 @@ from direction_validation import validate_next_bar_direction
 from trade_plan import build_trade_plan
 from model_card import model_card
 from decision_engine import build_decision_engine
-from simulator import create_trade, evaluate_trade, init_db as initialize_simulation_store, list_trades, manual_close, stats as simulation_stats
+from simulator import create_trade, evaluate_trade, init_db as initialize_simulation_store, list_trades, manual_close, stats as simulation_stats, clear_trades
 from strategy_lab import performance as strategy_lab_performance, replay as strategy_lab_replay
 from position_manager import calculate_position
 from kline_analysis import analyze_kline
 
-app = FastAPI(title="Gate AI Quant V12.1 Stability Edition Mobile", version="12.1.0")
+app = FastAPI(title="Gate AI Quant V12.4 Professional Trade Lifecycle Mobile", version="12.4.0")
 BASE = Path(__file__).resolve().parent
 DATA_DIR = BASE / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -143,6 +143,11 @@ class SimulationCreateRequest(BaseModel):
     grace_bars: int = Field(default=6, ge=0, le=100)
     strategy: dict = Field(default_factory=dict)
     notes: str = Field(default="", max_length=500)
+    duplicate_policy: str = Field(default="REPLACE")
+
+
+class SimulationClearRequest(BaseModel):
+    scope: str = Field(default="ALL")
 
 
 class SimulationCloseRequest(BaseModel):
@@ -178,7 +183,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "12.1.0", "edition": "Stability Edition: simulation refresh fix, isolated trade errors, professional position manager"}
+    return {"ok": True, "version": "12.4.0", "edition": "Professional Trade Lifecycle: duplicate protection, AI lifecycle, advanced analytics and reviews"}
 
 
 @app.get("/api/model-card")
@@ -318,7 +323,7 @@ async def simulation_create_api(req: SimulationCreateRequest) -> dict:
             leverage=req.leverage, fee_rate=req.fee_rate,
             slippage_rate=req.slippage_rate, max_holding_bars=req.max_holding_bars,
             exit_mode=req.exit_mode, grace_bars=req.grace_bars,
-            strategy=req.strategy, notes=req.notes,
+            strategy=req.strategy, notes=req.notes, duplicate_policy=req.duplicate_policy,
         )
         return {"ok": True, "result": trade, "market_price": market_price, "data_warnings": warnings,
                 "notice": "这是本地模拟订单，不会连接Gate账户或发送真实订单。"}
@@ -382,6 +387,15 @@ async def simulation_close_api(req: SimulationCloseRequest) -> dict:
         result = manual_close(req.trade_id, float(candles[-1].c))
         return {"ok": True, "result": result, "stats": simulation_stats()}
     except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/simulation/clear")
+async def simulation_clear_api(req: SimulationClearRequest) -> dict:
+    try:
+        result = clear_trades(req.scope)
+        return {"ok": True, "result": result, "stats": simulation_stats()}
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

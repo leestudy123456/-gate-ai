@@ -78,7 +78,7 @@ function prefillScanSimulation(row){
   if(!row||!['LONG','SHORT'].includes(row.side)){setStatus('scanStatus','该信号当前没有明确方向，暂不建立模拟交易。','error');return}
   $('contract').value=row.contract;$('interval').value=row.interval||$('scanInterval').value;
   $('simSide').value=row.side;$('simOrderType').value='LIMIT';$('simEntry').value=row.entry??row.last_price??'';$('simStop').value=row.stop??'';$('simTarget').value=row.target??'';
-  $('simBalance').value=$('decisionBalance').value||1000;$('simRisk').value=$('decisionRiskCap').value||0.01;$('simNotes').value=`V12.1扫描直达｜模型信心${row.confidence}｜${scanRecommendation(row)}`;
+  $('simBalance').value=$('decisionBalance').value||1000;$('simRisk').value=$('decisionRiskCap').value||0.01;$('simNotes').value=`V12.4扫描直达｜模型信心${row.confidence}｜${scanRecommendation(row)}`;
   switchPanel('simulationPanel');setStatus('simStatus',`${row.contract} 已带入模拟交易，请核对价格后点击“开始模拟交易”。`,'success');
 }
 function toggleScanFavorite(contract,button){const key='gate-scan-favorites';const list=new Set(JSON.parse(localStorage.getItem(key)||'[]'));if(list.has(contract))list.delete(contract);else list.add(contract);localStorage.setItem(key,JSON.stringify([...list]));button.textContent=list.has(contract)?'★ 已收藏':'☆ 收藏'}
@@ -165,7 +165,7 @@ function prefillSimulation(x){
   $('simExitMode').value='SMART';$('simGraceBars').value='6';updateExitHelp();
   $('simRisk').value=String(x?.economics?.final_risk_fraction||$('decisionRiskCap').value||0.01);
   if(!$('simRisk').querySelector(`option[value="${$('simRisk').value}"]`))$('simRisk').value='0.01';
-  $('simNotes').value=`11.3 AI决策｜评分${x.decision_score||'—'}｜校准概率${fmt((x.calibration?.calibrated_probability||0)*100,1)}%`;
+  $('simNotes').value=`V12.4 AI决策｜评分${x.decision_score||'—'}｜校准概率${fmt((x.calibration?.calibrated_probability||0)*100,1)}%`;
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.target==='simulationPanel'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.add('hidden'));
   $('simulationPanel').classList.remove('hidden');
@@ -173,21 +173,28 @@ function prefillSimulation(x){
 }
 
 function simStatusZh(v){return({OPEN:'持仓中',PENDING:'待成交',CLOSED:'已结算',CANCELLED:'已取消'})[v]||v}
-function simReasonZh(v){return({TP:'止盈',SL:'止损',SL_FIRST_AMBIGUOUS:'同K线双触发，保守按止损',TIME:'固定时间平仓',TIME_NEAR_BREAKEVEN:'到期接近保本退出',TIME_MIN_LOSS:'到期最小亏损退出',TIME_LOCK_PROFIT:'到期锁定利润',TIME_SMART_EXIT:'AI动态退出',TIME_GRACE_LIMIT:'观察窗口结束强制退出',TRAILING_STOP:'智能移动止损',MANUAL:'手动平仓',CANCELLED:'取消挂单'})[v]||v||'—'}
+function simReasonZh(v){return({TP:'止盈',SL:'止损',SL_FIRST_AMBIGUOUS:'同K线双触发，保守按止损',TIME:'固定时间平仓',TIME_NEAR_BREAKEVEN:'到期接近保本退出',TIME_MIN_LOSS:'到期最小亏损退出',TIME_LOCK_PROFIT:'到期锁定利润',TIME_SMART_EXIT:'AI动态退出',TIME_GRACE_LIMIT:'观察窗口结束强制退出',TRAILING_STOP:'智能移动止损',MANUAL:'手动平仓',CANCELLED:'取消挂单',REPLACED:'被新挂单覆盖'})[v]||v||'—'}
 function simTime(ts){return ts?new Date(ts*1000).toLocaleString('zh-CN'):'—'}
 function renderSimulation(j){
   const st=j.stats||{};
-  $('simStats').innerHTML=[['已结算',st.closed_trades||0],['胜率',`${fmt(st.win_rate_pct||0,1)}%`],['净盈亏',`${fmt(st.net_pnl||0,2)} USDT`],['平均R',fmt(st.average_r||0,2)],['Profit Factor',st.profit_factor==null?'—':fmt(st.profit_factor,2)],['未结束',st.open_trades||0]].map(([k,v])=>`<article><span>${k}</span><strong>${v}</strong></article>`).join('');
+  $('simStats').innerHTML=[['已结算',st.closed_trades||0],['胜率',`${fmt(st.win_rate_pct||0,1)}%`],['净盈亏',`${fmt(st.net_pnl||0,2)} USDT`],['平均R',fmt(st.average_r||0,2)],['Profit Factor',st.profit_factor==null?'—':fmt(st.profit_factor,2)],['最大回撤',`${fmt(st.max_drawdown||0,2)} USDT`],['Sharpe',fmt(st.sharpe||0,2)],['Sortino',fmt(st.sortino||0,2)],['Kelly建议',`${fmt((st.kelly_fraction||0)*100,1)}%`],['未结束',st.open_trades||0]].map(([k,v])=>`<article><span>${k}</span><strong>${v}</strong></article>`).join('');
+  if($('simSideStats')){$('simSideStats').innerHTML=['LONG','SHORT'].map(side=>{const x=(st.by_side||{})[side]||{};return `<div class="lab-row"><b>${side}</b><span>${x.trades||0}笔</span><span>胜率 ${fmt(x.win_rate_pct||0,1)}%</span><span>${fmt(x.net_pnl||0,2)} USDT</span></div>`}).join('')}
   $('simStorageNotice').textContent=j.storage_notice||'模拟记录已读取。';
   const rows=j.result||[];
   $('simTrades').innerHTML=rows.map(t=>{
     const pnl=Number(t.net_pnl||0),pcls=pnl>0?'sim-positive':pnl<0?'sim-negative':'';
     const mark=t.last_mark==null?'—':fmt(t.last_mark,6),fill=t.fill_price==null?'待成交':fmt(t.fill_price,6);
-    const closeAction=t.status==='OPEN'?`<button class="secondary sim-close" data-id="${t.id}">手动平仓</button>`:t.status==='PENDING'?`<button class="secondary sim-close" data-id="${t.id}">取消挂单</button>`:'';const action=`<button class="secondary sim-replay" data-id="${t.id}">决策回放</button>${closeAction}`;
-    return `<article class="sim-trade"><div class="sim-trade-main"><div class="sim-trade-head"><strong>${t.contract} · ${t.interval}</strong><span class="viz-badge">${t.side}</span><span class="sim-status">${simStatusZh(t.status)}</span></div><div class="sim-lines"><span>类型：${t.order_type==='MARKET'?'市价模拟':'触价入场'}</span><span>创建：${simTime(t.created_at)}</span><span>成交：${fill}</span><span>最新：${mark}</span><span>止损：${fmt(t.stop,6)}</span><span>止盈：${fmt(t.target,6)}</span><span>数量：${fmt(t.quantity,6)}</span><span>持有：${t.bars_held||0}/${t.max_holding_bars}根${Number(t.grace_bars||0)>0?` + ${t.grace_bars}根观察`:''}</span><span>退出：${({SMART:'AI动态',BREAKEVEN:'保本优先',MIN_LOSS:'最小亏损',TRAILING:'移动止盈',FIXED:'固定时间'})[t.exit_mode]||t.exit_mode||'—'}</span><span>最大有利：${fmt((t.max_favorable_excursion||0)*100,2)}%</span><span>最大不利：${fmt((t.max_adverse_excursion||0)*100,2)}%</span><span>结果：${simReasonZh(t.exit_reason)}</span><span class="sim-pnl ${pcls}">净盈亏：${t.status==='CLOSED'?`${fmt(pnl,2)} USDT / ${fmt(t.r_multiple,2)}R`:'—'}</span></div>${t.management_note?`<small>管理状态：${t.management_note}</small>`:''}${t.notes?`<small>${t.notes}</small>`:''}</div><div class="sim-actions">${action}</div></article>`
+    const closeAction=t.status==='OPEN'?`<button class="secondary sim-close" data-id="${t.id}">手动平仓</button>`:t.status==='PENDING'?`<button class="secondary sim-close" data-id="${t.id}">取消挂单</button>`:'';
+    const action=`<button class="secondary sim-replay" data-id="${t.id}">决策回放</button>${closeAction}`;
+    let lifecycle='';
+    if(t.status==='PENDING') lifecycle=`<div class="notice-box compact-note"><b>等待成交</b>｜当前 ${mark}｜挂单 ${fmt(t.requested_entry,6)}｜距离 ${fmt(t.distance_to_entry_pct||0,2)}%｜AI：${t.ai_state||'继续等待'}</div>`;
+    else if(t.status==='OPEN') lifecycle=`<div class="notice-box compact-note"><b>AI持仓管理</b>｜第 ${t.bars_held||0}/${t.max_holding_bars} 根｜${t.ai_state||'继续执行计划'}｜MFE ${fmt((t.max_favorable_excursion||0)*100,2)}%｜MAE ${fmt((t.max_adverse_excursion||0)*100,2)}%</div>`;
+    else if(t.status==='CLOSED'){const r=t.review||{};lifecycle=`<div class="notice-box compact-note"><b>交易复盘 ${r.score??'—'}分</b>｜${r.discipline||'—'}｜${r.summary||''}<br>${r.improvement||''}</div>`}
+    return `<article class="sim-trade"><div class="sim-trade-main"><div class="sim-trade-head"><strong>${t.contract} · ${t.interval}</strong><span class="viz-badge">${t.side}</span><span class="sim-status">${simStatusZh(t.status)}</span></div>${lifecycle}<div class="sim-lines"><span>类型：${t.order_type==='MARKET'?'市价模拟':'触价入场'}</span><span>创建：${simTime(t.created_at)}</span><span>成交：${fill}</span><span>最新：${mark}</span><span>止损：${fmt(t.stop,6)}</span><span>止盈：${fmt(t.target,6)}</span><span>数量：${fmt(t.quantity,6)}</span><span>持有：${t.bars_held||0}/${t.max_holding_bars}根${Number(t.grace_bars||0)>0?` + ${t.grace_bars}根观察`:''}</span><span>退出：${({SMART:'AI动态',BREAKEVEN:'保本优先',MIN_LOSS:'最小亏损',TRAILING:'移动止盈',FIXED:'固定时间'})[t.exit_mode]||t.exit_mode||'—'}</span><span>最大有利：${fmt((t.max_favorable_excursion||0)*100,2)}%</span><span>最大不利：${fmt((t.max_adverse_excursion||0)*100,2)}%</span><span>结果：${simReasonZh(t.exit_reason)}</span><span class="sim-pnl ${pcls}">净盈亏：${t.status==='CLOSED'?`${fmt(pnl,2)} USDT / ${fmt(t.r_multiple,2)}R`:'—'}</span></div>${t.management_note?`<small>管理状态：${t.management_note}</small>`:''}${t.notes?`<small>${t.notes}</small>`:''}</div><div class="sim-actions">${action}</div></article>`
   }).join('')||'<div class="list-empty">暂无模拟交易。</div>';
   document.querySelectorAll('.sim-close').forEach(b=>b.onclick=()=>closeSimulation(b.dataset.id));document.querySelectorAll('.sim-replay').forEach(b=>b.onclick=()=>loadReplay(b.dataset.id));
 }
+
 async function loadSimulation(){
   setStatus('simStatus','正在读取模拟交易并检查最新已收盘K线…','loading');$('simLoadBtn').disabled=true;
   try{const j=await api(`/api/simulation/trades?status=${encodeURIComponent($('simFilter').value)}&refresh=true&_=${Date.now()}`,{},'simulation',30000);renderSimulation(j);loadStrategyLab();setStatus('simStatus',(j.refresh_errors||[]).length?`交易记录已读取，但${j.refresh_errors.length}笔行情更新失败：${j.refresh_errors[0]}`:'模拟交易已更新','success')}
@@ -201,7 +208,7 @@ $('simCreateBtn').onclick=async()=>{
   setStatus('simStatus','正在读取最新公开行情并建立模拟订单…','loading');$('simCreateBtn').disabled=true;
   try{
     const strategy=lastDecisionData||{};
-    const body={contract:currentContract(),interval:$('interval').value,side:$('simSide').value,order_type:$('simOrderType').value,entry:Number($('simEntry').value),stop:Number($('simStop').value),target:Number($('simTarget').value),account_balance:Number($('simBalance').value),risk_fraction:Number($('simRisk').value),leverage:Number($('simLeverage').value),fee_rate:Number($('fee').value),slippage_rate:Number($('slippage').value),max_holding_bars:Number($('simMaxBars').value),exit_mode:$('simExitMode').value,grace_bars:Number($('simGraceBars').value),strategy,notes:$('simNotes').value};
+    const body={contract:currentContract(),interval:$('interval').value,side:$('simSide').value,order_type:$('simOrderType').value,entry:Number($('simEntry').value),stop:Number($('simStop').value),target:Number($('simTarget').value),account_balance:Number($('simBalance').value),risk_fraction:Number($('simRisk').value),leverage:Number($('simLeverage').value),fee_rate:Number($('fee').value),slippage_rate:Number($('slippage').value),max_holding_bars:Number($('simMaxBars').value),exit_mode:$('simExitMode').value,grace_bars:Number($('simGraceBars').value),strategy,notes:$('simNotes').value,duplicate_policy:$('simDuplicatePolicy').value};
     const j=await api('/api/simulation/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},'sim-create',35000);
     setStatus('simStatus',`${j.result.contract} ${j.result.side} 模拟订单已建立｜${simStatusZh(j.result.status)}`,'success');await loadSimulation();
   }catch(e){setStatus('simStatus',e.message,'error')}finally{$('simCreateBtn').disabled=false}
@@ -231,3 +238,13 @@ async function loadReplay(id){
 }
 if($('labLoadBtn'))$('labLoadBtn').onclick=loadStrategyLab;
 if($('replayCloseBtn'))$('replayCloseBtn').onclick=()=>$('replayCard').classList.add('hidden');
+
+
+function applySimPreset(name){
+  const presets={conservative:{risk:'0.005',bars:24,grace:4,leverage:1},balanced:{risk:'0.01',bars:30,grace:6,leverage:2},aggressive:{risk:'0.02',bars:48,grace:10,leverage:3}};
+  const x=presets[name];if(!x)return;$('simRisk').value=x.risk;$('simMaxBars').value=x.bars;$('simGraceBars').value=x.grace;$('simLeverage').value=x.leverage;$('simExitMode').value='SMART';formatHoldingTime();updateExitHelp();setStatus('simStatus',`已应用${name==='conservative'?'保守':name==='balanced'?'平衡':'激进'}模板，请核对价格。`,'success');
+}
+if($('simPresetConservative'))$('simPresetConservative').onclick=()=>applySimPreset('conservative');
+if($('simPresetBalanced'))$('simPresetBalanced').onclick=()=>applySimPreset('balanced');
+if($('simPresetAggressive'))$('simPresetAggressive').onclick=()=>applySimPreset('aggressive');
+if($('simClearBtn'))$('simClearBtn').onclick=async()=>{if(!confirm('确定清空全部模拟交易记录吗？此操作不可撤销。'))return;try{const j=await api('/api/simulation/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scope:'ALL'})},'sim-clear',15000);setStatus('simStatus',`已清除 ${j.result.deleted||0} 笔模拟记录`,'success');await loadSimulation()}catch(e){setStatus('simStatus',e.message,'error')}};

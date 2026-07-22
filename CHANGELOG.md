@@ -1,4 +1,11 @@
-## 12.1 Stability Edition
+# 12.4 Professional Trade Lifecycle
+
+- Duplicate pending-order protection with REPLACE/REJECT/KEEP policies.
+- Full pending/open/closed lifecycle presentation.
+- Advanced performance statistics and automated trade review.
+- Simulation presets and clear-record endpoint.
+
+## 12.4 Stability Edition
 
 - Fixed simulation refresh `UnboundLocalError` when no new closed candle exists.
 - Fixed `requested` initialization order in `evaluate_trade`.
