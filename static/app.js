@@ -76,7 +76,7 @@ function prefillScanSimulation(row){
   if(!row||!['LONG','SHORT'].includes(row.side)){setStatus('scanStatus','该信号当前没有明确方向，暂不建立模拟交易。','error');return}
   $('contract').value=row.contract;$('interval').value=row.interval||$('scanInterval').value;
   $('simSide').value=row.side;$('simOrderType').value='LIMIT';$('simEntry').value=row.entry??row.last_price??'';$('simStop').value=row.stop??'';$('simTarget').value=row.target??'';
-  $('simBalance').value=$('decisionBalance').value||1000;$('simRisk').value=$('decisionRiskCap').value||0.01;$('simNotes').value=`9.2扫描直达｜模型信心${row.confidence}｜${scanRecommendation(row)}`;
+  $('simBalance').value=$('decisionBalance').value||1000;$('simRisk').value=$('decisionRiskCap').value||0.01;$('simNotes').value=`11.1扫描直达｜模型信心${row.confidence}｜${scanRecommendation(row)}`;
   switchPanel('simulationPanel');setStatus('simStatus',`${row.contract} 已带入模拟交易，请核对价格后点击“开始模拟交易”。`,'success');
 }
 function toggleScanFavorite(contract,button){const key='gate-scan-favorites';const list=new Set(JSON.parse(localStorage.getItem(key)||'[]'));if(list.has(contract))list.delete(contract);else list.add(contract);localStorage.setItem(key,JSON.stringify([...list]));button.textContent=list.has(contract)?'★ 已收藏':'☆ 收藏'}
@@ -117,7 +117,10 @@ $('decisionBtn').onclick=async()=>{
     const j=await api('/api/decision-engine',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),x=j.result,c=x.calibration||{},e=x.economics||{},s=x.signal||{},pi=c.probability_interval_pct||[0,0],cls=x.action==='LONG'?'long':x.action==='SHORT'?'short':'wait';
     lastDecisionData=x;
     const list=(title,rows,klass)=>rows&&rows.length?`<div class="plan-block ${klass}"><h3>${title}</h3><ul class="decision-list">${rows.map(v=>`<li>${v}</li>`).join('')}</ul></div>`:'';
-    $('decisionResult').innerHTML=`<div class="decision-summary"><div class="decision-hero"><div class="decision-action ${cls}"><span>${x.contract} · ${x.interval}</span><strong>${x.action_zh}</strong><small>技术方向 ${s.side||'FLAT'}｜等级 ${x.grade}</small></div><div><span>决策评分</span><strong>${fmt(x.decision_score,1)}/100</strong><small>${x.explanation}</small></div></div><div class="decision-grid"><article><span>校准概率</span><b>${pct((c.calibrated_probability||0)*100)}</b></article><article><span>概率区间</span><b>${fmt(pi[0],1)}%–${fmt(pi[1],1)}%</b></article><article><span>样本外成本后率</span><b>${pct((c.empirical_cost_adjusted_probability||0)*100)}</b></article><article><span>同方向样本</span><b>${c.samples||0}</b></article><article><span>样本外总样本</span><b>${c.holdout_samples||0}</b></article><article><span>样本外最大连错</span><b>${c.max_consecutive_wrong_oos||0}</b></article><article><span>多周期对齐</span><b>${pct((c.timeframe_alignment||0)*100)}</b></article><article><span>数据质量</span><b>${x.quality?.grade||'—'} / ${x.quality?.score||0}</b></article><article><span>期望值</span><b>${fmt(e.expected_r,3)}R</b></article><article><span>最终风险</span><b>${pct((e.final_risk_fraction||0)*100)}</b></article><article><span>最大计划亏损</span><b>${fmt(e.max_loss,2)} USDT</b></article><article><span>四分之一Kelly</span><b>${pct((e.quarter_kelly_fraction||0)*100)}</b></article><article><span>资金费率</span><b>${x.funding?.funding_rate_pct==null?'—':`${fmt(x.funding.funding_rate_pct,4)}%`}</b></article><article><span>拥挤状态</span><b>${x.funding?.crowding||'—'}</b></article></div>${list('通过项',x.positives,'decision-positive')}${list('阻止交易的条件',x.blockers,'decision-blocker')}${list('风险提醒',x.warnings,'decision-warning')}<div class="notice-box">${x.notice}</div><button id="decisionToSimBtn" ${s.side==='LONG'||s.side==='SHORT'?'':'disabled'}>带入模拟交易</button></div>`;
+    const v=x.voting||{},r=x.risk_engine||{},reg=x.market_regime||{},models=x.models||[],explain=x.explain_ai||[],dna=x.trade_dna||{},sq=x.strategy_quality||{},ds=x.data_sources||{};
+    const modelHtml=models.length?`<div class="v10-section"><h3>多模型投票</h3><div class="model-vote-grid">${models.map(m=>`<article><span>${m.model}</span><b class="${m.side==='LONG'?'long-text':m.side==='SHORT'?'short-text':''}">${m.side}</b><small>多 ${fmt(m.long_score,1)} / 空 ${fmt(m.short_score,1)} · 信心 ${fmt(m.confidence,1)}${m.available===false?' · 数据未接入':''}</small></article>`).join('')}</div></div>`:'';
+    const explainHtml=explain.length?`<details class="v10-explain"><summary>为什么？查看指标贡献</summary>${explain.map(i=>`<div class="explain-row"><b>${i.factor}</b><span class="${i.contribution>=0?'long-text':'short-text'}">${i.contribution>=0?'+':''}${fmt(i.contribution,1)}</span><small>${i.reason}</small></div>`).join('')}</details>`:'';
+    $('decisionResult').innerHTML=`<div class="decision-summary"><div class="decision-hero"><div class="decision-action ${cls}"><span>${x.contract} · ${x.interval}</span><strong>${x.action_zh}</strong><small>技术方向 ${s.side||'FLAT'}｜等级 ${x.grade}</small></div><div><span>决策评分</span><strong>${fmt(x.decision_score,1)}/100</strong><small>${x.explanation}</small></div></div><div class="v10-top-grid"><article><span>模型投票</span><b>${v.side||'—'}</b><small>一致度 ${pct((v.agreement||0)*100)}</small></article><article><span>市场状态</span><b>${reg.label||'—'}</b><small>ADX ${fmt(reg.adx,1)} · ATR分位 ${fmt(reg.volatility_percentile,1)}%</small></article><article><span>风险引擎</span><b>${r.level||'—'} · ${fmt(r.score,1)}</b><small>${r.trade_allowed===false?'禁止交易':'允许条件交易'}</small></article><article><span>策略质量</span><b>${sq.grade||'—'} · ${fmt(sq.score,1)}</b><small>${sq.tradeable?'达到研究门槛':'信号质量不足'}</small></article><article><span>Trade DNA</span><b>${dna.id||'—'}</b><small>决策快照标识</small></article></div><div class="decision-grid"><article><span>校准概率</span><b>${pct((c.calibrated_probability||0)*100)}</b></article><article><span>概率区间</span><b>${fmt(pi[0],1)}%–${fmt(pi[1],1)}%</b></article><article><span>样本外成本后率</span><b>${pct((c.empirical_cost_adjusted_probability||0)*100)}</b></article><article><span>同方向样本</span><b>${c.samples||0}</b></article><article><span>样本外总样本</span><b>${c.holdout_samples||0}</b></article><article><span>样本外最大连错</span><b>${c.max_consecutive_wrong_oos||0}</b></article><article><span>多周期对齐</span><b>${pct((c.timeframe_alignment||0)*100)}</b></article><article><span>数据质量</span><b>${x.quality?.grade||'—'} / ${x.quality?.score||0}</b></article><article><span>期望值</span><b>${fmt(e.expected_r,3)}R</b></article><article><span>最终风险</span><b>${pct((e.final_risk_fraction||0)*100)}</b></article><article><span>最大计划亏损</span><b>${fmt(e.max_loss,2)} USDT</b></article><article><span>四分之一Kelly</span><b>${pct((e.quarter_kelly_fraction||0)*100)}</b></article><article><span>资金费率</span><b>${x.funding?.funding_rate_pct==null?'—':`${fmt(x.funding.funding_rate_pct,4)}%`}</b></article><article><span>拥挤状态</span><b>${x.funding?.crowding||'—'}</b></article></div>${modelHtml}${explainHtml}${list('风险引擎依据',r.reasons,'decision-warning')}${list('通过项',x.positives,'decision-positive')}${list('阻止交易的条件',x.blockers,'decision-blocker')}${list('风险提醒',x.warnings,'decision-warning')}<div class="notice-box">${x.notice}</div><button id="decisionToSimBtn" ${s.side==='LONG'||s.side==='SHORT'?'':'disabled'}>带入模拟交易</button></div>`;
     $('decisionResult').classList.remove('hidden');const toSim=$('decisionToSimBtn');if(toSim)toSim.onclick=()=>prefillSimulation(lastDecisionData);setStatus('decisionStatus','决策完成','success');
   }catch(e){setStatus('decisionStatus',e.message,'error')}
   finally{$('decisionBtn').disabled=false}
@@ -134,7 +137,7 @@ function prefillSimulation(x){
   $('simBalance').value=$('decisionBalance').value||1000;
   $('simRisk').value=String(x?.economics?.final_risk_fraction||$('decisionRiskCap').value||0.01);
   if(!$('simRisk').querySelector(`option[value="${$('simRisk').value}"]`))$('simRisk').value='0.01';
-  $('simNotes').value=`9.0 AI决策｜评分${x.decision_score||'—'}｜校准概率${fmt((x.calibration?.calibrated_probability||0)*100,1)}%`;
+  $('simNotes').value=`11.1 AI决策｜评分${x.decision_score||'—'}｜校准概率${fmt((x.calibration?.calibrated_probability||0)*100,1)}%`;
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.target==='simulationPanel'));
   document.querySelectorAll('.panel').forEach(x=>x.classList.add('hidden'));
   $('simulationPanel').classList.remove('hidden');
@@ -152,14 +155,14 @@ function renderSimulation(j){
   $('simTrades').innerHTML=rows.map(t=>{
     const pnl=Number(t.net_pnl||0),pcls=pnl>0?'sim-positive':pnl<0?'sim-negative':'';
     const mark=t.last_mark==null?'—':fmt(t.last_mark,6),fill=t.fill_price==null?'待成交':fmt(t.fill_price,6);
-    const action=t.status==='OPEN'?`<button class="secondary sim-close" data-id="${t.id}">手动平仓</button>`:t.status==='PENDING'?`<button class="secondary sim-close" data-id="${t.id}">取消挂单</button>`:'';
+    const closeAction=t.status==='OPEN'?`<button class="secondary sim-close" data-id="${t.id}">手动平仓</button>`:t.status==='PENDING'?`<button class="secondary sim-close" data-id="${t.id}">取消挂单</button>`:'';const action=`<button class="secondary sim-replay" data-id="${t.id}">决策回放</button>${closeAction}`;
     return `<article class="sim-trade"><div class="sim-trade-main"><div class="sim-trade-head"><strong>${t.contract} · ${t.interval}</strong><span class="viz-badge">${t.side}</span><span class="sim-status">${simStatusZh(t.status)}</span></div><div class="sim-lines"><span>类型：${t.order_type==='MARKET'?'市价模拟':'触价入场'}</span><span>创建：${simTime(t.created_at)}</span><span>成交：${fill}</span><span>最新：${mark}</span><span>止损：${fmt(t.stop,6)}</span><span>止盈：${fmt(t.target,6)}</span><span>数量：${fmt(t.quantity,6)}</span><span>持有：${t.bars_held||0}/${t.max_holding_bars}根</span><span>最大有利：${fmt((t.max_favorable_excursion||0)*100,2)}%</span><span>最大不利：${fmt((t.max_adverse_excursion||0)*100,2)}%</span><span>结果：${simReasonZh(t.exit_reason)}</span><span class="sim-pnl ${pcls}">净盈亏：${t.status==='CLOSED'?`${fmt(pnl,2)} USDT / ${fmt(t.r_multiple,2)}R`:'—'}</span></div>${t.notes?`<small>${t.notes}</small>`:''}</div><div class="sim-actions">${action}</div></article>`
   }).join('')||'<div class="list-empty">暂无模拟交易。</div>';
-  document.querySelectorAll('.sim-close').forEach(b=>b.onclick=()=>closeSimulation(b.dataset.id));
+  document.querySelectorAll('.sim-close').forEach(b=>b.onclick=()=>closeSimulation(b.dataset.id));document.querySelectorAll('.sim-replay').forEach(b=>b.onclick=()=>loadReplay(b.dataset.id));
 }
 async function loadSimulation(){
   setStatus('simStatus','正在读取模拟交易并检查最新已收盘K线…','loading');$('simLoadBtn').disabled=true;
-  try{const j=await api(`/api/simulation/trades?status=${encodeURIComponent($('simFilter').value)}&refresh=true&_=${Date.now()}`,{},'simulation',30000);renderSimulation(j);setStatus('simStatus','模拟交易已更新','success')}
+  try{const j=await api(`/api/simulation/trades?status=${encodeURIComponent($('simFilter').value)}&refresh=true&_=${Date.now()}`,{},'simulation',30000);renderSimulation(j);loadStrategyLab();setStatus('simStatus','模拟交易已更新','success')}
   catch(e){setStatus('simStatus',e.message,'error')}finally{$('simLoadBtn').disabled=false}
 }
 async function closeSimulation(id){
@@ -176,3 +179,27 @@ $('simCreateBtn').onclick=async()=>{
   }catch(e){setStatus('simStatus',e.message,'error')}finally{$('simCreateBtn').disabled=false}
 };
 $('simLoadBtn').onclick=loadSimulation;$('simFilter').onchange=loadSimulation;
+
+
+function labBucketHtml(obj){
+  const rows=Object.entries(obj||{});if(!rows.length)return '<div class="list-empty">暂无已结算样本。</div>';
+  return rows.map(([name,x])=>`<div class="lab-row"><b>${name}</b><span>${x.trades||0}笔</span><span>胜率 ${fmt(x.win_rate_pct||0,1)}%</span><span>${fmt(x.net_pnl||0,2)} USDT</span></div>`).join('');
+}
+async function loadStrategyLab(){
+  if(!$('labLoadBtn'))return;$('labLoadBtn').disabled=true;
+  try{const j=await api('/api/strategy-lab/performance?limit=500&_='+Date.now(),{},'strategy-lab',20000),x=j.result||{},o=x.overall||{};
+    $('labSummary').innerHTML=[['已结算',o.trades||0],['胜率',`${fmt(o.win_rate_pct||0,1)}%`],['平均R',fmt(o.average_r||0,2)],['最大回撤',`${fmt(x.max_drawdown_usdt||0,2)} USDT`],['最大连胜',x.max_win_streak||0],['最大连亏',x.max_loss_streak||0]].map(([k,v])=>`<article><span>${k}</span><strong>${v}</strong></article>`).join('');
+    $('labByGrade').innerHTML=labBucketHtml(x.by_grade);$('labByRegime').innerHTML=labBucketHtml(x.by_regime);$('labMethod').textContent=x.methodology||'';
+  }catch(e){$('labMethod').textContent='绩效读取失败：'+e.message}finally{$('labLoadBtn').disabled=false}
+}
+function replayValue(v){return v==null||v===''?'—':v}
+async function loadReplay(id){
+  try{const j=await api(`/api/strategy-lab/replay/${encodeURIComponent(id)}`,{},`replay-${id}`,15000),x=j.result||{},t=x.trade||{},d=x.decision||{},models=d.models||[];
+    $('replayTitle').textContent=`${t.contract} · ${t.interval} · ${t.side} · ${simStatusZh(t.status)}`;
+    const q=d.strategy_quality||{},r=d.risk_engine||{},v=d.voting||{},reg=d.market_regime||{},cal=d.calibration||{},sources=d.data_sources||{};
+    $('replayResult').innerHTML=`<div class="replay-grid"><article><span>当时决策</span><b>${replayValue(d.action_zh||d.action)}</b></article><article><span>策略质量</span><b>${replayValue(q.grade)} · ${fmt(q.score||0,1)}</b></article><article><span>校准概率</span><b>${fmt((cal.calibrated_probability||0)*100,1)}%</b></article><article><span>市场状态</span><b>${replayValue(reg.label)}</b></article><article><span>风险</span><b>${replayValue(r.level)} · ${fmt(r.score||0,1)}</b></article><article><span>模型投票</span><b>${replayValue(v.side)} · ${fmt((v.agreement||0)*100,0)}%</b></article></div><div class="source-state">${Object.entries(sources).filter(([k])=>!['note'].includes(k)).map(([k,val])=>`<span class="source-chip ${val?'':'off'}">${k}: ${val?'已接入':'未接入'}</span>`).join('')}</div><div class="replay-models">${models.map(m=>`<div class="replay-model"><b>${m.model}</b><span>${m.side} · ${fmt(m.long_score,1)}</span><small>${(m.reasons||[]).join('；')}</small></div>`).join('')||'<div class="list-empty">该交易未保存完整V11模型快照，可能来自旧版本。</div>'}</div><div class="notice-box compact-note">${x.integrity_note||''}</div>`;
+    $('replayCard').classList.remove('hidden');$('replayCard').scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(e){setStatus('simStatus','回放失败：'+e.message,'error')}
+}
+if($('labLoadBtn'))$('labLoadBtn').onclick=loadStrategyLab;
+if($('replayCloseBtn'))$('replayCloseBtn').onclick=()=>$('replayCard').classList.add('hidden');
