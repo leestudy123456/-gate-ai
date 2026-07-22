@@ -222,9 +222,12 @@ def evaluate_trade(trade_id: str, candles: list[Candle]) -> dict[str, Any]:
     target = float(trade["target"])
     exit_mode = str(trade.get("exit_mode") or "SMART").upper()
     grace_bars = int(trade.get("grace_bars") or 0)
+    requested = float(trade["requested_entry"])
     best_price = float(trade.get("best_price") or trade.get("fill_price") or requested)
     management_note = str(trade.get("management_note") or "")
-    requested = float(trade["requested_entry"])
+    # Always initialise the outgoing note. There may be no newly closed candle,
+    # so assigning it only inside the loop causes UnboundLocalError.
+    note = management_note
     slip = float(trade["slippage_rate"])
     mfe = float(trade.get("max_favorable_excursion") or 0)
     mae = float(trade.get("max_adverse_excursion") or 0)

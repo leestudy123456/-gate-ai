@@ -28,7 +28,7 @@ from strategy_lab import performance as strategy_lab_performance, replay as stra
 from position_manager import calculate_position
 from kline_analysis import analyze_kline
 
-app = FastAPI(title="Gate AI Quant V12 Professional Mobile", version="12.0.0")
+app = FastAPI(title="Gate AI Quant V12.1 Stability Edition Mobile", version="12.1.0")
 BASE = Path(__file__).resolve().parent
 DATA_DIR = BASE / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -178,7 +178,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "12.0.0", "edition": "Professional: separated analysis, fast strategy, position manager, smart exits"}
+    return {"ok": True, "version": "12.1.0", "edition": "Stability Edition: simulation refresh fix, isolated trade errors, professional position manager"}
 
 
 @app.get("/api/model-card")
@@ -341,7 +341,11 @@ async def simulation_trades_api(status: str = Query(default="ALL"), refresh: boo
                     )
                     return evaluate_trade(t["id"], candles)
                 except Exception as exc:
-                    refresh_errors.append(f"{t['contract']} {t['interval']}：{exc}")
+                    # One broken record must not stop the remaining active trades.
+                    refresh_errors.append(
+                        f"{t['contract']} {t['interval']}（{t.get('side', '-')} / {t.get('status', '-')}）："
+                        f"{type(exc).__name__}: {exc}"
+                    )
                     return t
             if active:
                 await asyncio.gather(*(update_one(t) for t in active[:20]))

@@ -1,3 +1,12 @@
+## 12.1 Stability Edition
+
+- Fixed simulation refresh `UnboundLocalError` when no new closed candle exists.
+- Fixed `requested` initialization order in `evaluate_trade`.
+- Preserved existing management notes when no new management action occurs.
+- Isolated per-trade refresh failures so one bad record cannot interrupt other trades.
+- Added clearer refresh diagnostics with direction, status and exception type.
+- Retained V12 professional position sizing, separated AI/K-line analysis and V11.3 smart exits.
+
 # 11.3 Smart Exit Manager
 
 - Added configurable maximum holding bars (1–500) with mobile presets.
