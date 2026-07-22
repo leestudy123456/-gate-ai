@@ -54,6 +54,7 @@ def build_decision_engine(
     account_balance: float = 1000.0,
     max_risk_fraction: float = 0.01,
     kelly_cap: float = 0.05,
+    funding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Conservative, auditable decision layer.
 
@@ -104,15 +105,45 @@ def build_decision_engine(
         calibrated_probability += _clamp(technical_edge, -0.08, 0.08) * 0.20
     calibrated_probability = _clamp(calibrated_probability, 0.35, 0.75)
 
+    blockers: list[str] = []
+    warnings: list[str] = []
+    positives: list[str] = []
+
+    funding = funding or {}
+    funding_rate = funding.get("funding_rate")
+    funding_adjustment = 0.0
+    funding_note = "资金费率数据暂不可用，不阻止其他指标运行"
+    if funding_rate is not None:
+        rate = float(funding_rate)
+        funding_note = f"资金费率{rate * 100:+.4f}%（{funding.get('crowding', '中性')}）"
+        # Crowding is a risk adjustment, not a standalone reversal signal.
+        if signal.side == "LONG" and rate >= 0.0003:
+            funding_adjustment = -0.045
+            warnings.append("正资金费率极端，多头拥挤，降低追多概率")
+        elif signal.side == "LONG" and rate >= 0.0001:
+            funding_adjustment = -0.020
+            warnings.append("正资金费率偏高，多头存在拥挤风险")
+        elif signal.side == "SHORT" and rate <= -0.0003:
+            funding_adjustment = -0.045
+            warnings.append("负资金费率极端，空头拥挤，降低追空概率")
+        elif signal.side == "SHORT" and rate <= -0.0001:
+            funding_adjustment = -0.020
+            warnings.append("负资金费率偏低，空头存在轧空风险")
+        elif signal.side == "LONG" and rate < 0:
+            funding_adjustment = 0.012
+            positives.append("价格偏多但资金费率为负，未出现多头拥挤")
+        elif signal.side == "SHORT" and rate > 0:
+            funding_adjustment = 0.012
+            positives.append("价格偏空但资金费率为正，未出现空头拥挤")
+
+    calibrated_probability = _clamp(calibrated_probability + funding_adjustment, 0.35, 0.75)
+    positives.append(funding_note)
+
     rr = float(signal.risk_reward or 0.0)
     expected_r = calibrated_probability * rr - (1.0 - calibrated_probability) if rr > 0 else -1.0
     full_kelly = max(0.0, expected_r / rr) if rr > 0 else 0.0
     quarter_kelly = full_kelly * 0.25
     final_risk_fraction = min(quarter_kelly, kelly_cap, max_risk_fraction)
-
-    blockers: list[str] = []
-    warnings: list[str] = []
-    positives: list[str] = []
 
     if signal.side not in {"LONG", "SHORT"}:
         blockers.append("当前技术评分没有形成明确方向")
@@ -174,7 +205,7 @@ def build_decision_engine(
     ]
 
     return {
-        "version": "7.0.0",
+        "version": "7.2.0",
         "action": action,
         "action_zh": action_zh,
         "grade": _grade(confidence_score),
@@ -200,6 +231,8 @@ def build_decision_engine(
         },
         "quality": quality,
         "consensus": consensus,
+        "funding": funding,
+        "funding_probability_adjustment": funding_adjustment,
         "positives": positives,
         "warnings": warnings,
         "blockers": blockers,

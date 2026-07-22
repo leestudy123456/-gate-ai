@@ -8,3 +8,10 @@
 - 新增 Quarter Kelly 与固定风险上限联合预算
 - 新增手机端 AI 决策卡
 - 版本升级为 PRO 7.0 AI MOBILE
+
+
+## 7.2.0
+- Added Gate futures funding-rate context and crowding adjustment.
+- Added 20-second response cache and in-flight request deduplication.
+- Added browser request cancellation, 30-second timeout and no-store refresh.
+- Switching contracts now cancels stale requests so old responses cannot overwrite the new coin.

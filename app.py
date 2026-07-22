@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backtest import run_backtest
-from gate_client import GateDataError, INTERVAL_SECONDS, fetch_history, fetch_recent_candles
+from gate_client import GateDataError, INTERVAL_SECONDS, fetch_history, fetch_recent_candles, fetch_funding_context
 from strategy import build_signal, snapshot_to_dict
 from optimizer import optimize_parameters
 from validation import walk_forward_validate, monte_carlo_trade_paths
@@ -22,7 +23,7 @@ from trade_plan import build_trade_plan
 from model_card import model_card
 from decision_engine import build_decision_engine
 
-app = FastAPI(title="Gate AI Quant Professional 7.0.0 Mobile", version="7.0.0")
+app = FastAPI(title="Gate AI Quant Professional 7.2.0 Mobile", version="7.2.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -140,7 +141,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "7.0.0", "edition": "Mobile AI Decision Engine"}
+    return {"ok": True, "version": "7.2.0", "edition": "Funding + Refresh Stability"}
 
 
 @app.get("/api/model-card")
@@ -154,7 +155,8 @@ async def analyze_api(
     interval: str = Query(default="15m"),
 ) -> dict:
     try:
-        candles, warnings = await fetch_recent_candles(contract, interval, 300)
+        candles, warnings = await asyncio.wait_for(fetch_recent_candles(contract, interval, 300), timeout=18)
+        funding = await asyncio.wait_for(fetch_funding_context(contract), timeout=12)
         snapshot = build_signal(candles)
         generated_at = int(datetime.now(timezone.utc).timestamp())
         interval_seconds = INTERVAL_SECONDS[interval]
@@ -169,6 +171,7 @@ async def analyze_api(
             "signal": snapshot_to_dict(snapshot),
             "data_warnings": warnings,
             "data_quality": assess_data_quality(candles, interval, warnings),
+            "funding": funding,
             "score_notice": "信心值是规则模型评分，不是经过校准的真实胜率。",
         }
         save_signal(
@@ -179,7 +182,7 @@ async def analyze_api(
             payload,
         )
         return payload
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -193,7 +196,10 @@ async def decision_engine_api(req: DecisionEngineRequest) -> dict:
             parse_utc_date(req.start),
             parse_utc_date(req.end, end_of_day=True),
         )
-        consensus = await multi_timeframe_consensus(req.contract)
+        consensus, funding = await asyncio.gather(
+            multi_timeframe_consensus(req.contract),
+            fetch_funding_context(req.contract),
+        )
         result = build_decision_engine(
             candles=candles,
             interval=req.interval,
@@ -206,13 +212,14 @@ async def decision_engine_api(req: DecisionEngineRequest) -> dict:
             account_balance=req.account_balance,
             max_risk_fraction=req.max_risk_fraction,
             kelly_cap=req.kelly_cap,
+            funding=funding,
         )
         result.update({
             "contract": req.contract.upper(), "interval": req.interval,
             "start": req.start, "end": req.end,
         })
         return {"ok": True, "result": result}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -234,7 +241,7 @@ async def trade_plan_api(req: TradePlanRequest) -> dict:
         )
         result.update({"contract": req.contract.upper(), "interval": req.interval, "start": req.start, "end": req.end})
         return {"ok": True, "result": result}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -264,7 +271,7 @@ async def backtest_api(req: BacktestRequest) -> dict:
         payload["start"] = req.start
         payload["end"] = req.end
         return {"ok": True, "result": payload}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -292,7 +299,7 @@ async def direction_validation_api(req: DirectionValidationRequest) -> dict:
             "data_warnings": data_warnings,
         })
         return {"ok": True, "result": result}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -317,7 +324,7 @@ async def optimize_api(req: OptimizeRequest) -> dict:
             "data_warnings": data_warnings,
             "notice": "优化区间属于训练样本，必须再做样本外验证。",
         }
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -339,7 +346,7 @@ async def walk_forward_api(req: WalkForwardRequest) -> dict:
         )
         result["data_warnings"] = data_warnings
         return {"ok": True, "result": result}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -365,7 +372,7 @@ async def monte_carlo_api(req: BacktestRequest) -> dict:
         ]
         simulation = monte_carlo_trade_paths(returns)
         return {"ok": True, "result": simulation}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -384,7 +391,7 @@ async def scanner_api(
                 min_confidence=min_confidence,
             ),
         }
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -392,7 +399,7 @@ async def scanner_api(
 async def consensus_api(contract: str = Query(default="BTC_USDT")) -> dict:
     try:
         return {"ok": True, "result": await multi_timeframe_consensus(contract)}
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -539,5 +546,5 @@ async def professional_overview_api(
             },
             "notice": "历史统计是信号日志，不等于已实现交易胜率。",
         }
-    except (GateDataError, ValueError) as exc:
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -17,6 +17,9 @@ INTERVAL_SECONDS = {
     "1d": 86400,
 }
 MAX_PAGE_BARS = 1000
+CACHE_SECONDS = 20
+_response_cache: dict[str, tuple[float, Any]] = {}
+_inflight: dict[str, asyncio.Task] = {}
 
 
 class GateDataError(RuntimeError):
@@ -74,36 +77,125 @@ def _validate_sequence(candles: list[Candle], interval: str) -> list[str]:
     return warnings
 
 
+async def _request_json(path: str, params: dict[str, str] | None = None, *, cache_seconds: int = CACHE_SECONDS) -> Any:
+    params = params or {}
+    key = path + "?" + "&".join(f"{k}={params[k]}" for k in sorted(params))
+    now = time.time()
+    cached = _response_cache.get(key)
+    if cached and now - cached[0] < cache_seconds:
+        return cached[1]
+
+    # Reuse the same in-flight request when the user taps refresh repeatedly.
+    existing = _inflight.get(key)
+    if existing and not existing.done():
+        return await asyncio.shield(existing)
+
+    async def run() -> Any:
+        timeout = httpx.Timeout(14.0, connect=5.0, read=10.0, write=5.0, pool=5.0)
+        url = f"{BASE_URL}{path}"
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                    response = await client.get(url, params=params, headers={
+                        "Accept": "application/json",
+                        "User-Agent": "gate-ai-quant/7.2",
+                        "Cache-Control": "no-cache",
+                    })
+                if response.status_code == 429:
+                    await asyncio.sleep(0.8 * (attempt + 1))
+                    continue
+                if response.status_code != 200:
+                    raise GateDataError(f"Gate接口返回 {response.status_code}：{response.text[:180]}")
+                payload = response.json()
+                _response_cache[key] = (time.time(), payload)
+                return payload
+            except (httpx.HTTPError, ValueError, GateDataError) as exc:
+                last_error = exc
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+        raise GateDataError(f"连接Gate行情接口失败：{last_error}")
+
+    task = asyncio.create_task(run())
+    _inflight[key] = task
+    try:
+        return await asyncio.shield(task)
+    finally:
+        if _inflight.get(key) is task and task.done():
+            _inflight.pop(key, None)
+
+
 async def _get(params: dict[str, str]) -> list[dict[str, Any]]:
-    timeout = httpx.Timeout(20.0, connect=8.0)
-    url = f"{BASE_URL}/futures/usdt/candlesticks"
-    last_error: Exception | None = None
+    payload = await _request_json("/futures/usdt/candlesticks", params)
+    if not isinstance(payload, list):
+        raise GateDataError("Gate返回格式异常")
+    return payload
 
-    for attempt in range(3):
+
+async def fetch_funding_context(contract: str) -> dict[str, Any]:
+    """Fetch current funding, recent funding momentum and open-interest proxy.
+
+    This is a public-data call. Missing optional fields degrade gracefully instead
+    of blocking the whole analysis page.
+    """
+    contract = normalize_contract(contract)
+    current: dict[str, Any] = {}
+    history: list[dict[str, Any]] = []
+    try:
+        payload = await _request_json(f"/futures/usdt/contracts/{contract}", cache_seconds=15)
+        if isinstance(payload, dict):
+            current = payload
+    except GateDataError:
+        current = {}
+    try:
+        payload = await _request_json(
+            "/futures/usdt/funding_rate",
+            {"contract": contract, "limit": "30"},
+            cache_seconds=60,
+        )
+        if isinstance(payload, list):
+            history = payload
+    except GateDataError:
+        history = []
+
+    def num(value: Any) -> float | None:
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                response = await client.get(
-                    url,
-                    params=params,
-                    headers={"Accept": "application/json", "User-Agent": "gate-ai-quant/4.0"},
-                )
-            if response.status_code == 429:
-                await asyncio.sleep(1.5 * (attempt + 1))
-                continue
-            if response.status_code != 200:
-                raise GateDataError(
-                    f"Gate接口返回 {response.status_code}：{response.text[:250]}"
-                )
-            payload = response.json()
-            if not isinstance(payload, list):
-                raise GateDataError("Gate返回格式异常")
-            return payload
-        except (httpx.HTTPError, ValueError, GateDataError) as exc:
-            last_error = exc
-            if attempt < 2:
-                await asyncio.sleep(0.8 * (attempt + 1))
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
-    raise GateDataError(f"连接Gate行情接口失败：{last_error}")
+    rate = num(current.get("funding_rate"))
+    next_rate = num(current.get("funding_next_rate"))
+    next_time = current.get("funding_next_apply") or current.get("funding_next_time")
+    hist_rates = [num(x.get("r")) for x in history if isinstance(x, dict)]
+    hist_rates = [x for x in hist_rates if x is not None]
+    momentum = (hist_rates[0] - hist_rates[-1]) if len(hist_rates) >= 2 else 0.0
+    oi = num(current.get("position_size") or current.get("open_interest"))
+
+    abs_rate = abs(rate or 0.0)
+    level = "正常"
+    if abs_rate >= 0.0003:
+        level = "极端"
+    elif abs_rate >= 0.0001:
+        level = "偏高"
+    crowding = "中性"
+    if rate is not None and rate >= 0.0001:
+        crowding = "多头拥挤"
+    elif rate is not None and rate <= -0.0001:
+        crowding = "空头拥挤"
+
+    return {
+        "available": rate is not None,
+        "funding_rate": rate,
+        "funding_rate_pct": rate * 100 if rate is not None else None,
+        "funding_next_rate": next_rate,
+        "funding_next_time": int(float(next_time)) if next_time not in (None, "") else None,
+        "funding_momentum": momentum,
+        "funding_level": level,
+        "crowding": crowding,
+        "open_interest": oi,
+        "history_samples": len(hist_rates),
+    }
 
 
 def _clean(payload: list[dict[str, Any]], interval: str, closed_only: bool) -> tuple[list[Candle], list[str]]:
