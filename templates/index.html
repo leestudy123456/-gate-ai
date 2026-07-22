@@ -1,6 +1,6 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant Professional 7.2.0 Mobile</title><link rel="stylesheet" href="/static/style.css?v=7.2.0"></head><body>
-<main><header><div><span class="version">PRO 7.2 FUNDING MOBILE</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
-<nav class="tabs" aria-label="主要功能"><button class="tab active" data-target="dashboardPanel">总览</button><button class="tab" data-target="researchPanel">研究</button><button class="tab" data-target="scannerPanel">排行</button><button class="tab" data-target="predictionPanel">预测</button></nav>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Gate AI Quant Professional 9.0 Mobile</title><link rel="stylesheet" href="/static/style.css?v=9.0.0"></head><body>
+<main><header><div><span class="version">PRO 9.0 PAPER TRADING MOBILE</span><h1>Gate AI Quant</h1><p>移动端量化研究平台｜公开行情｜不连接账户｜不自动下单</p></div><button id="themeBtn" class="icon-btn" aria-label="切换主题">◐</button></header>
+<nav class="tabs" aria-label="主要功能"><button class="tab active" data-target="dashboardPanel">总览</button><button class="tab" data-target="researchPanel">研究</button><button class="tab" data-target="scannerPanel">排行</button><button class="tab" data-target="predictionPanel">预测</button><button class="tab" data-target="simulationPanel">模拟</button></nav>
 
 <section id="dashboardPanel" class="panel">
   <section class="card"><div class="section-head"><div><h2>市场总览</h2><p>一次读取主信号、多周期共振和日志统计。</p></div><button id="overviewBtn" class="compact">刷新</button></div>
@@ -13,7 +13,7 @@
 </section>
 
 <section id="researchPanel" class="panel hidden">
-  <section class="card decision-engine-card"><div class="section-head"><div><h2>7.2 AI 决策引擎</h2><p>技术方向、样本外验证、多周期共振、数据质量、期望值与Kelly联合决策。</p></div><button id="decisionBtn" class="compact">运行决策</button></div>
+  <section class="card decision-engine-card"><div class="section-head"><div><h2>9.0 AI 决策引擎</h2><p>技术方向、样本外验证、多周期共振、数据质量、期望值与Kelly联合决策。</p></div><button id="decisionBtn" class="compact">运行决策</button></div>
     <div class="grid two compact-fields"><label>决策账户余额<input id="decisionBalance" type="number" value="1000"></label><label>风险上限<select id="decisionRiskCap"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label></div>
     <div id="decisionStatus" class="status idle">等待运行</div><div id="decisionResult" class="hidden"></div>
   </section>
@@ -40,4 +40,31 @@
 <section id="predictionPanel" class="panel hidden">
   <section class="card"><h2>预测市场价值计算</h2><p class="muted">模型概率需由你独立估计，本工具只计算价格与概率之间的价值差。</p><div class="grid two"><label>市场价格<input id="marketPrice" type="number" step="0.01" value="0.55"></label><label>模型概率<input id="modelProbability" type="number" step="0.01" value="0.65"></label><label>费用率<input id="predictionFee" type="number" step="0.001" value="0"></label><label>Kelly 上限<input id="kellyCap" type="number" step="0.01" value="0.05"></label></div><button id="predictionBtn">计算价值</button><div id="predictionResult" class="result-grid"></div></section>
 </section>
-<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=7.2.0"></script></body></html>
+
+<section id="simulationPanel" class="panel hidden">
+  <section class="card">
+    <div class="section-head"><div><h2>9.0 模拟交易</h2><p>使用公开行情跟踪策略，不连接 Gate 账户，不发送真实订单。</p></div><button id="simLoadBtn" class="compact secondary">更新行情</button></div>
+    <div class="grid two compact-fields">
+      <label>方向<select id="simSide"><option>LONG</option><option>SHORT</option></select></label>
+      <label>订单类型<select id="simOrderType"><option value="MARKET" selected>市价模拟（立即成交）</option><option value="LIMIT">策略入场（触价成交）</option></select></label>
+      <label>入场价<input id="simEntry" type="number" step="any"></label>
+      <label>止损价<input id="simStop" type="number" step="any"></label>
+      <label>止盈价<input id="simTarget" type="number" step="any"></label>
+      <label>账户余额<input id="simBalance" type="number" value="1000"></label>
+      <label>单笔风险<select id="simRisk"><option value="0.005">0.5%</option><option value="0.01" selected>1%</option><option value="0.02">2%</option></select></label>
+      <label>杠杆<input id="simLeverage" type="number" value="1" min="1" max="100"></label>
+      <label>最长持有K线<input id="simMaxBars" type="number" value="24" min="1" max="500"></label>
+      <label>备注<input id="simNotes" maxlength="500" placeholder="例如：9.0 AI决策"></label>
+    </div>
+    <button id="simCreateBtn">开始模拟交易</button>
+    <div id="simStatus" class="status idle">可先运行 AI 决策，再自动带入方向与价格。</div>
+    <div class="notice-box compact-note">判定规则：只读取已收盘K线；同一根K线同时触及止盈与止损时，因无法知道盘中先后顺序，保守按止损先发生。</div>
+  </section>
+  <section class="card">
+    <div class="section-head"><div><h2>模拟账户统计</h2><p>统计已结算模拟交易的成本后结果。</p></div><select id="simFilter" class="compact"><option value="ALL">全部</option><option value="OPEN">持仓中</option><option value="PENDING">待成交</option><option value="CLOSED">已结算</option><option value="CANCELLED">已取消</option></select></div>
+    <div id="simStats" class="metric-grid"></div>
+    <div id="simStorageNotice" class="notice-box compact-note">尚未读取记录。</div>
+  </section>
+  <section class="card"><div class="section-head"><div><h2>模拟交易日志</h2><p>点击“更新行情”会检查入场、止盈、止损和超时条件。</p></div></div><div id="simTrades" class="rank-list"><div class="list-empty">暂无模拟交易。</div></div></section>
+</section>
+<footer>仅供研究与风险管理参考，不构成投资建议。<span id="healthBadge">正在检查服务…</span></footer></main><div id="termModal" class="modal hidden"><div class="modal-card"><button id="termClose" class="modal-close">×</button><h2 id="termTitle">术语解释</h2><p id="termBody"></p></div></div><script src="/static/app.js?v=9.0.0"></script></body></html>
