@@ -30,24 +30,52 @@ def _wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float
     return max(0.0, centre - margin) * 100, min(1.0, centre + margin) * 100
 
 
+def _stats(rows: list[DirectionObservation], side: str | None = None) -> dict:
+    chosen = rows if side is None else [x for x in rows if x.side == side]
+    correct = sum(x.direction_correct for x in chosen)
+    cost_correct = sum(x.cost_adjusted_correct for x in chosen)
+    lo, hi = _wilson_interval(cost_correct, len(chosen))
+    return {
+        "signals": len(chosen),
+        "correct": correct,
+        "accuracy_pct": correct / len(chosen) * 100 if chosen else 0.0,
+        "cost_adjusted_correct": cost_correct,
+        "cost_adjusted_accuracy_pct": cost_correct / len(chosen) * 100 if chosen else 0.0,
+        "confidence_interval_95_pct": [lo, hi],
+    }
+
+
+def _score_bins(rows: list[DirectionObservation]) -> list[dict]:
+    result: list[dict] = []
+    for low, high in ((60, 69), (70, 79), (80, 89), (90, 100)):
+        bucket = [x for x in rows if low <= x.score <= high]
+        if not bucket:
+            continue
+        stats = _stats(bucket)
+        result.append({"range": f"{low}-{high}", **stats})
+    return result
+
+
 def validate_next_bar_direction(
     candles: list[Candle],
     threshold: int = 72,
     sample_size: int = 100,
     fee_rate: float = 0.0005,
     slippage_rate: float = 0.0002,
+    test_fraction: float = 0.35,
 ) -> dict:
-    """Out-of-sample-like chronological next-bar direction audit.
+    """Chronological, no-look-ahead next-bar audit with a held-out tail sample.
 
-    At each timestamp the model sees only candles up to that closed bar. The
-    following bar close is then used as the outcome. No future bar is included
-    in signal construction. The most recent `sample_size` actionable signals
-    are reported.
+    Every signal is built using only candles available at that timestamp. The
+    latest part of the selected observations is reserved as a strict holdout
+    set. Decision logic should use the holdout results, not the full sample.
     """
     if len(candles) < 260:
         raise ValueError("方向验证至少需要260根K线")
     if not 20 <= sample_size <= 1000:
         raise ValueError("样本数应在20到1000之间")
+    if not 0.2 <= test_fraction <= 0.5:
+        raise ValueError("测试集比例应在20%到50%之间")
 
     observations: list[DirectionObservation] = []
     round_trip_cost = 2 * (fee_rate + slippage_rate)
@@ -78,27 +106,15 @@ def validate_next_bar_direction(
     if len(selected) < 20:
         raise ValueError(f"有效方向信号不足：仅{len(selected)}次；请扩大日期范围或降低阈值")
 
-    def stats(side: str | None = None) -> dict:
-        rows = selected if side is None else [x for x in selected if x.side == side]
-        correct = sum(x.direction_correct for x in rows)
-        cost_correct = sum(x.cost_adjusted_correct for x in rows)
-        lo, hi = _wilson_interval(correct, len(rows))
-        return {
-            "signals": len(rows),
-            "correct": correct,
-            "accuracy_pct": correct / len(rows) * 100 if rows else 0.0,
-            "cost_adjusted_correct": cost_correct,
-            "cost_adjusted_accuracy_pct": cost_correct / len(rows) * 100 if rows else 0.0,
-            "confidence_interval_95_pct": [lo, hi],
-        }
+    test_count = max(20, int(round(len(selected) * test_fraction)))
+    test_count = min(test_count, max(1, len(selected) - 20))
+    train_rows = selected[:-test_count]
+    test_rows = selected[-test_count:]
 
-    total = stats()
-    long_stats = stats("LONG")
-    short_stats = stats("SHORT")
     consecutive_losses = 0
     max_consecutive_losses = 0
-    for row in selected:
-        if row.direction_correct:
+    for row in test_rows:
+        if row.cost_adjusted_correct:
             consecutive_losses = 0
         else:
             consecutive_losses += 1
@@ -109,14 +125,29 @@ def validate_next_bar_direction(
         "requested_samples": sample_size,
         "used_samples": len(selected),
         "threshold": threshold,
-        "definition": "信号在当前已收盘K线后生成，用下一根K线收盘方向验证",
-        "cost_definition": "手续费后有效要求方向收益超过双边手续费与双边滑点",
+        "definition": "每个信号只使用当时已收盘K线，下一根K线收盘作为结果",
+        "split_definition": "按时间顺序切分，最后35%为严格样本外测试集",
+        "cost_definition": "方向收益必须超过双边手续费与双边滑点才算成本后正确",
         "round_trip_cost_pct": round_trip_cost * 100,
-        "overall": total,
-        "long": long_stats,
-        "short": short_stats,
+        "overall": _stats(selected),
+        "long": _stats(selected, "LONG"),
+        "short": _stats(selected, "SHORT"),
+        "train": {
+            "samples": len(train_rows),
+            "overall": _stats(train_rows),
+            "long": _stats(train_rows, "LONG"),
+            "short": _stats(train_rows, "SHORT"),
+            "score_bins": _score_bins(train_rows),
+        },
+        "out_of_sample": {
+            "samples": len(test_rows),
+            "overall": _stats(test_rows),
+            "long": _stats(test_rows, "LONG"),
+            "short": _stats(test_rows, "SHORT"),
+            "score_bins": _score_bins(test_rows),
+        },
         "signal_coverage_pct": len(observations) / eligible_bars * 100,
-        "max_consecutive_wrong": max_consecutive_losses,
-        "observations": [asdict(x) for x in selected[-100:]],
-        "notice": "这是历史下一根K线方向命中率，不保证未来结果；样本重叠且市场状态会变化。",
+        "max_consecutive_wrong_oos": max_consecutive_losses,
+        "observations": [asdict(x) for x in test_rows[-100:]],
+        "notice": "决策引擎只使用样本外结果。即使样本外为正，也不保证未来盈利。",
     }

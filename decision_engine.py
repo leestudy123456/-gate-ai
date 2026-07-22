@@ -77,12 +77,13 @@ def build_decision_engine(
         slippage_rate=slippage_rate,
     )
 
+    oos = validation.get("out_of_sample", {})
     if signal.side == "LONG":
-        stats = validation["long"]
+        stats = oos.get("long", validation["long"])
     elif signal.side == "SHORT":
-        stats = validation["short"]
+        stats = oos.get("short", validation["short"])
     else:
-        stats = validation["overall"]
+        stats = oos.get("overall", validation["overall"])
 
     samples = int(stats.get("signals", 0))
     empirical = _clamp(float(stats.get("cost_adjusted_accuracy_pct", 0.0)) / 100.0, 0.0, 1.0)
@@ -166,7 +167,7 @@ def build_decision_engine(
 
     if signal.side in {"LONG", "SHORT"}:
         positives.append(f"主周期方向为{signal.side}，规则评分{signal.confidence}/100")
-    positives.append(f"成本后历史有效率{empirical * 100:.1f}%，样本{samples}次")
+    positives.append(f"样本外成本后有效率{empirical * 100:.1f}%，样本{samples}次")
     positives.append(f"多周期对齐度{alignment * 100:.0f}%（{aligned_count}/{timeframe_count}个周期同向）")
     positives.append(f"数据质量{quality.get('grade', '—')}，评分{quality.get('score', 0)}")
 
@@ -205,7 +206,7 @@ def build_decision_engine(
     ]
 
     return {
-        "version": "7.2.0",
+        "version": "9.0.0",
         "action": action,
         "action_zh": action_zh,
         "grade": _grade(confidence_score),
@@ -220,6 +221,9 @@ def build_decision_engine(
             "calibrated_probability": calibrated_probability,
             "probability_interval_pct": probability_interval,
             "samples": samples,
+            "source": "chronological_holdout",
+            "holdout_samples": int(oos.get("samples", 0)),
+            "max_consecutive_wrong_oos": int(validation.get("max_consecutive_wrong_oos", 0)),
         },
         "economics": {
             "risk_reward": rr,
@@ -237,7 +241,7 @@ def build_decision_engine(
         "warnings": warnings,
         "blockers": blockers,
         "explanation": (
-            "只有技术方向、成本后历史验证、置信区间、多周期共振、数据质量和正期望同时通过，"
+            "只有技术方向、严格样本外验证、置信区间、多周期共振、数据质量和正期望同时通过，"
             "系统才允许输出条件交易；否则统一返回WAIT。"
         ),
         "notice": "校准概率来自历史样本并做保守折扣，不是未来收益保证；系统不连接账户、不自动下单。",

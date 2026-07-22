@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,8 +23,9 @@ from direction_validation import validate_next_bar_direction
 from trade_plan import build_trade_plan
 from model_card import model_card
 from decision_engine import build_decision_engine
+from simulator import create_trade, evaluate_trade, list_trades, manual_close, stats as simulation_stats
 
-app = FastAPI(title="Gate AI Quant Professional 7.2.0 Mobile", version="7.2.0")
+app = FastAPI(title="Gate AI Quant Professional 9.0 Mobile", version="9.0.0")
 BASE = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 
@@ -112,6 +114,28 @@ class TradePlanRequest(BaseModel):
     kelly_cap: float = Field(default=0.05, gt=0, le=0.25)
 
 
+class SimulationCreateRequest(BaseModel):
+    contract: str = Field(default="BTC_USDT")
+    interval: str = Field(default="15m")
+    side: str
+    order_type: str = Field(default="MARKET")
+    entry: float = Field(gt=0)
+    stop: float = Field(gt=0)
+    target: float = Field(gt=0)
+    account_balance: float = Field(default=1000.0, gt=0)
+    risk_fraction: float = Field(default=0.01, gt=0, le=0.05)
+    leverage: float = Field(default=1.0, ge=1.0, le=100.0)
+    fee_rate: float = Field(default=0.0005, ge=0, le=0.005)
+    slippage_rate: float = Field(default=0.0002, ge=0, le=0.005)
+    max_holding_bars: int = Field(default=24, ge=1, le=500)
+    strategy: dict = Field(default_factory=dict)
+    notes: str = Field(default="", max_length=500)
+
+
+class SimulationCloseRequest(BaseModel):
+    trade_id: str
+
+
 class BacktestRequest(BaseModel):
     contract: str = Field(default="BTC_USDT")
     interval: str = Field(default="15m")
@@ -141,7 +165,7 @@ async def home() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "version": "7.2.0", "edition": "Funding + Refresh Stability"}
+    return {"ok": True, "version": "9.0.0", "edition": "Calibrated Paper Trading Journal"}
 
 
 @app.get("/api/model-card")
@@ -241,6 +265,60 @@ async def trade_plan_api(req: TradePlanRequest) -> dict:
         )
         result.update({"contract": req.contract.upper(), "interval": req.interval, "start": req.start, "end": req.end})
         return {"ok": True, "result": result}
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/simulation/create")
+async def simulation_create_api(req: SimulationCreateRequest) -> dict:
+    try:
+        candles, warnings = await asyncio.wait_for(fetch_recent_candles(req.contract, req.interval, 60), timeout=15)
+        market_price = float(candles[-1].c)
+        trade = create_trade(
+            contract=req.contract, interval=req.interval, side=req.side,
+            order_type=req.order_type, requested_entry=req.entry,
+            market_price=market_price, stop=req.stop, target=req.target,
+            account_balance=req.account_balance, risk_fraction=req.risk_fraction,
+            leverage=req.leverage, fee_rate=req.fee_rate,
+            slippage_rate=req.slippage_rate, max_holding_bars=req.max_holding_bars,
+            strategy=req.strategy, notes=req.notes,
+        )
+        return {"ok": True, "result": trade, "market_price": market_price, "data_warnings": warnings,
+                "notice": "这是本地模拟订单，不会连接Gate账户或发送真实订单。"}
+    except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/simulation/trades")
+async def simulation_trades_api(status: str = Query(default="ALL"), refresh: bool = Query(default=True)) -> dict:
+    try:
+        trades = list_trades(100, status)
+        if refresh:
+            active = [t for t in trades if t.get("status") in {"OPEN", "PENDING"}]
+            async def update_one(t: dict) -> dict:
+                try:
+                    candles, _ = await asyncio.wait_for(fetch_recent_candles(t["contract"], t["interval"], 300), timeout=12)
+                    return evaluate_trade(t["id"], candles)
+                except Exception:
+                    return t
+            if active:
+                await asyncio.gather(*(update_one(t) for t in active[:20]))
+            trades = list_trades(100, status)
+        return {"ok": True, "result": trades, "stats": simulation_stats(),
+                "storage_notice": "默认数据库位于应用本地目录；Render免费实例重新部署可能清空记录，正式长期使用需挂载持久磁盘。"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/simulation/close")
+async def simulation_close_api(req: SimulationCloseRequest) -> dict:
+    try:
+        trade = next((t for t in list_trades(500) if t["id"] == req.trade_id), None)
+        if not trade:
+            raise ValueError("找不到该模拟交易")
+        candles, _ = await asyncio.wait_for(fetch_recent_candles(trade["contract"], trade["interval"], 20), timeout=12)
+        result = manual_close(req.trade_id, float(candles[-1].c))
+        return {"ok": True, "result": result, "stats": simulation_stats()}
     except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -523,17 +601,29 @@ async def advanced_risk_api(req: AdvancedRiskRequest) -> dict:
     }
 
 
+_overview_cache: dict[str, tuple[float, dict]] = {}
+_OVERVIEW_CACHE_SECONDS = 25
+
 @app.get("/api/professional-overview")
 async def professional_overview_api(
     contract: str = Query(default="BTC_USDT"),
 ) -> dict:
     try:
-        consensus = await multi_timeframe_consensus(contract)
+        normalized = contract.strip().upper().replace("-", "_").replace("/", "_")
+        cached = _overview_cache.get(normalized)
+        if cached and time.time() - cached[0] < _OVERVIEW_CACHE_SECONDS:
+            payload = dict(cached[1])
+            payload["cached"] = True
+            return payload
+
+        consensus = await asyncio.wait_for(
+            multi_timeframe_consensus(normalized), timeout=11.0
+        )
         recent = recent_signals(100)
         matching = [x for x in recent if x["contract"] == contract.upper()]
-        return {
+        payload = {
             "ok": True,
-            "contract": contract.upper(),
+            "contract": normalized,
             "consensus": consensus,
             "signal_history": {
                 "count": len(matching),
@@ -545,6 +635,9 @@ async def professional_overview_api(
                 ) if matching else 0,
             },
             "notice": "历史统计是信号日志，不等于已实现交易胜率。",
+            "cached": False,
         }
+        _overview_cache[normalized] = (time.time(), payload)
+        return payload
     except (GateDataError, ValueError, asyncio.TimeoutError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
