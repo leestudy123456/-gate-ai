@@ -78,7 +78,7 @@ function prefillScanSimulation(row){
   if(!row||!['LONG','SHORT'].includes(row.side)){setStatus('scanStatus','该信号当前没有明确方向，暂不建立模拟交易。','error');return}
   $('contract').value=row.contract;$('interval').value=row.interval||$('scanInterval').value;
   $('simSide').value=row.side;$('simOrderType').value='LIMIT';$('simEntry').value=row.entry??row.last_price??'';$('simStop').value=row.stop??'';$('simTarget').value=row.target??'';
-  $('simBalance').value=$('decisionBalance').value||1000;$('simRisk').value=$('decisionRiskCap').value||0.01;$('simNotes').value=`V12扫描直达｜模型信心${row.confidence}｜${scanRecommendation(row)}`;
+  $('simBalance').value=$('decisionBalance').value||1000;$('simRisk').value=$('decisionRiskCap').value||0.01;$('simNotes').value=`V12.1扫描直达｜模型信心${row.confidence}｜${scanRecommendation(row)}`;
   switchPanel('simulationPanel');setStatus('simStatus',`${row.contract} 已带入模拟交易，请核对价格后点击“开始模拟交易”。`,'success');
 }
 function toggleScanFavorite(contract,button){const key='gate-scan-favorites';const list=new Set(JSON.parse(localStorage.getItem(key)||'[]'));if(list.has(contract))list.delete(contract);else list.add(contract);localStorage.setItem(key,JSON.stringify([...list]));button.textContent=list.has(contract)?'★ 已收藏':'☆ 收藏'}
