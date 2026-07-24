@@ -1,11 +1,9 @@
 services:
   - type: web
-    name: gate-ai-quant-professional-4
+    name: gate-ai-quant-v13-professional
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /api/health
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.41
+    autoDeploy: true
